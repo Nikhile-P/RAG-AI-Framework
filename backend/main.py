@@ -1,5 +1,7 @@
 import os
 import ast
+import sys
+import asyncio
 import random
 import traceback
 import smtplib
@@ -11,22 +13,27 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 
+# Ensure the current directory (backend) is in sys.path
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BACKEND_DIR = os.path.join(BASE_DIR, "backend")
+if BACKEND_DIR not in sys.path:
+    sys.path.insert(0, BACKEND_DIR)
+
 # ==========================================
 # 1. SETUP & CONFIGURATION
 # ==========================================
 app = FastAPI(title="Lenovo Research Workspace API", version="1.0")
 
-# [FIX APPLIED HERE]: Using wildcard "*" to guarantee no CORS drops during your demo
+# Wildcard origin cannot be combined with credentials per CORS spec; Next.js rewrites are same-origin for /api.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # Shared Directories
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, "documents")
 os.makedirs(DATA_DIR, exist_ok=True)
 LOG_FILE = os.path.join(BASE_DIR, "router.log")
@@ -243,8 +250,10 @@ async def chat(req: ChatRequest):
     """Chat endpoint backed by LangGraph."""
     try:
         from agent import route_answer
-        # Active history uses role/content dicts
-        result = route_answer(req.chat_history + [{"role": "user", "content": req.message}])
+
+        payload = req.chat_history + [{"role": "user", "content": req.message}]
+        # Heavy sync work (vector DB + LLM): avoid blocking the asyncio event loop
+        result = await asyncio.to_thread(route_answer, payload)
         return result
     except Exception as e:
         tb = traceback.format_exc()

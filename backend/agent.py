@@ -1,13 +1,18 @@
 import os
 import re
+import sys
 import time
+import threading
+import traceback
+from typing import Any
+
+from langchain.agents import create_agent
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_ollama import ChatOllama
 from langchain_tavily import TavilySearch
 from langchain_core.tools.retriever import create_retriever_tool
 from langchain_core.prompts import PromptTemplate
-from langgraph.prebuilt import create_react_agent
 from langchain_core.messages import HumanMessage, AIMessage
 from dotenv import load_dotenv
 
@@ -23,6 +28,82 @@ ENABLE_WEB        = os.getenv("ENABLE_WEB_FALLBACK", "true").lower() == "true"
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 global_runtime = None
+_runtime_init_lock = threading.Lock()
+
+AGENT_SYSTEM_PROMPT = (
+    "You are a senior enterprise research analyst at Lenovo. "
+    "Your goal is to provide accurate, data-driven insights based on Lenovo's internal document corpus. "
+    "Follow these rules strictly:\n"
+    "1. **Primary Tool**: Use the 'lenovo_internal' tool to search for all queries. Do not assume you know the answer without checking the corpus first.\n"
+    "2. **Evidence-Based Answers**: Every claim you make MUST be backed by a specific document from the search results.\n"
+    "3. **Citation Format**: Always cite the source using '(Source: filename.ext)' immediately after the relevant sentence or paragraph.\n"
+    "4. **Professional Tone**: Write in natural, executive-level prose. Avoid generic filler. Be concise but thorough.\n"
+    "5. **Honesty & Integrity**: If the document corpus does not contain the information requested, state that clearly. Do not make up facts or hallucinate data.\n"
+    "6. **Synthesize**: When multiple documents provide pieces of an answer, synthesize them into a cohesive narrative.\n"
+    "7. **Formatting**: Use Markdown for clarity (headers, lists) where appropriate, but keep the overall flow professional."
+)
+
+
+def _normalize_source(meta_val: Any) -> str:
+    if meta_val is None:
+        return ""
+    return str(meta_val).strip()
+
+
+def _final_ai_message_text(invoke_result: dict[str, Any]) -> str:
+    """Pick last plain assistant reply (skip AIMessages that only schedule tool_calls)."""
+    msgs: list[Any] = invoke_result.get("messages") or []
+    for m in reversed(msgs):
+        if not isinstance(m, AIMessage):
+            continue
+        tcalls = getattr(m, "tool_calls", None) or []
+        raw = getattr(m, "content", "")
+        text = _normalize_message_content(raw).strip()
+        if not text:
+            continue
+        if not tcalls:
+            return _normalize_message_content(raw)
+    for m in reversed(msgs):
+        if isinstance(m, AIMessage):
+            raw = getattr(m, "content", "")
+            text = _normalize_message_content(raw).strip()
+            if text:
+                return _normalize_message_content(raw)
+    return ""
+
+
+def _normalize_message_content(content: Any) -> str:
+    """Flatten LangChain message content (str or multimodal blocks) to plain text."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict):
+                if block.get("type") == "text" and isinstance(block.get("text"), str):
+                    parts.append(block["text"])
+                elif isinstance(block.get("content"), str):
+                    parts.append(block["content"])
+            else:
+                parts.append(str(block))
+        return "".join(parts)
+    return str(content)
+
+
+def _degraded_llm_banner(runtime: dict) -> str:
+    err = (runtime.get("ollama_error") or "").strip()
+    detail = f"\n\n_Technical detail: {err}_" if err else ""
+    return (
+        "**Note:** The local LLM (Ollama) is not available. "
+        "Showing retrieval-based results below. Start `ollama serve` and ensure the model is pulled for full agent replies."
+        + detail
+        + "\n\n---\n\n"
+    )
+
 
 # ── Query routing ──────────────────────────────────────────────────────────────
 _EXTERNAL_TERMS = {
@@ -129,16 +210,12 @@ def log_routing_decision(session_id: str, query: str, path: str, details: dict) 
         pass
 
 # ── Agent initialization ───────────────────────────────────────────────────────
-def initialize_agent():
-    global global_runtime
-
-    # If we already have a working runtime with an LLM, return it directly
-    if global_runtime and global_runtime.get("llm") is not None:
-        return global_runtime
-
+def _ensure_vector_runtime() -> dict:
+    """Load embeddings + vector store once (expensive). Does not require Ollama."""
+    # Repo-root .env works even when uvicorn's cwd is backend/
+    load_dotenv(os.path.join(BASE_DIR, ".env"))
     load_dotenv()
-
-    # Build retriever (always works — no Ollama needed)
+    tavily_key = (os.getenv("TAVILY_API_KEY") or "").strip()
     embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
     db = Chroma(
         persist_directory=os.path.join(BASE_DIR, "vector_db"),
@@ -148,52 +225,74 @@ def initialize_agent():
         search_type="mmr",
         search_kwargs={"k": RETRIEVER_K, "fetch_k": RETRIEVER_FETCH_K, "lambda_mult": RETRIEVER_LAMBDA},
     )
+    web_tool = None
+    if ENABLE_WEB and tavily_key:
+        try:
+            web_tool = TavilySearch(max_results=4, tavily_api_key=tavily_key)
+        except Exception as e:
+            print(f"[Web] Tavily init skipped: {e}")
+    return {
+        "retriever": retriever,
+        "web_tool": web_tool,
+        "llm": None,
+        "agent": None,
+        "ollama_error": None,
+    }
+
+
+def _attach_ollama_agent(runtime: dict) -> dict:
+    """Attach ChatOllama + tool-calling agent; cheap to retry when Ollama was down."""
+    retriever = runtime["retriever"]
     internal_tool = create_retriever_tool(
         retriever,
         name="lenovo_internal",
         description="Lenovo's internal enterprise document corpus. Always search here first for Lenovo-related queries.",
         document_prompt=PromptTemplate.from_template("Source: {source}\n\n{page_content}"),
     )
-
-    # Web tool (optional)
-    web_tool = global_runtime.get("web_tool") if global_runtime else None
-    if web_tool is None and ENABLE_WEB:
-        try:
-            web_tool = TavilySearch(max_results=4)
-        except Exception:
-            pass
-
-    # Try to connect to Ollama — retry-friendly (doesn't cache failure)
     llm = None
     ollama_error = None
     try:
         llm = ChatOllama(model=LOCAL_MODEL, temperature=0.1, num_predict=512, num_ctx=4096)
-        llm.invoke("ping")  # verify Ollama is alive
+        llm.invoke("ping")
     except Exception as e:
         ollama_error = str(e)
         llm = None
 
-    agent_prompt = (
-        "You are a senior enterprise research analyst at Lenovo. "
-        "Use the lenovo_internal tool to search the document corpus, then write a clear, well-reasoned answer. "
-        "Write in natural professional prose — as an expert would in an executive briefing. "
-        "Cite every claim with its source document using (Source: filename). "
-        "Never fabricate data. If the documents do not cover the question, say so directly."
-    )
-    agent = create_react_agent(model=llm, tools=[internal_tool], prompt=agent_prompt) if llm else None
+    agent = None
+    if llm:
+        try:
+            agent = create_agent(
+                model=llm,
+                tools=[internal_tool],
+                system_prompt=AGENT_SYSTEM_PROMPT,
+            )
+        except Exception as e:
+            print(f"[Agent] create_agent failed: {e}")
+            agent = None
+            llm = None
+            ollama_error = ollama_error or str(e)
 
-    # Only permanently cache if LLM is available; otherwise allow retry on next request
-    runtime = {"agent": agent, "llm": llm, "retriever": retriever, "web_tool": web_tool, "ollama_error": ollama_error}
-    if llm is not None:
-        global_runtime = runtime
-    else:
-        # Cache retriever/web_tool but NOT as the final runtime so LLM is retried next call
-        global_runtime = None
-
+    runtime["llm"] = llm
+    runtime["agent"] = agent
+    runtime["ollama_error"] = ollama_error
     return runtime
 
+
+def initialize_agent():
+    global global_runtime
+
+    # Serialize init: concurrent /api/chat + Chroma SQLite → "database is locked" otherwise
+    with _runtime_init_lock:
+        if global_runtime and global_runtime.get("llm") is not None:
+            return global_runtime
+
+        if global_runtime is None:
+            global_runtime = _ensure_vector_runtime()
+
+        return _attach_ollama_agent(global_runtime)
+
 # ── Internal RAG fallback (when agent is unavailable) ─────────────────────────
-def _rag_fallback(query: str, runtime: dict) -> dict:
+def _rag_fallback(query: str, runtime: dict, *, external_without_web: bool = False) -> dict:
     docs = runtime["retriever"].invoke(query)[:RETRIEVER_K]
     if not docs:
         return {
@@ -207,7 +306,8 @@ def _rag_fallback(query: str, runtime: dict) -> dict:
 
     sources, blocks = [], []
     for i, d in enumerate(docs, 1):
-        src = d.metadata.get("source", "internal")
+        src_raw = d.metadata.get("source", "internal")
+        src = _normalize_source(src_raw) or "internal"
         snippet = d.page_content.strip().replace("\n", " ")[:400]
         sources.append(src)
         blocks.append(f"[{i}] {snippet} (Source: {src})")
@@ -216,13 +316,20 @@ def _rag_fallback(query: str, runtime: dict) -> dict:
     llm = runtime.get("llm")
 
     if llm:
+        timing_note = (
+            "This question may call for breaking news or other live web data that is not in the excerpts. "
+            "If so, answer strictly from the documents below and clearly state limitations.\n\n"
+            if external_without_web
+            else ""
+        )
         prompt = (
             "You are a Lenovo enterprise research analyst. "
             "Using only the document excerpts below, write a clear, well-reasoned answer. "
             "Cite the source document for every point you make. "
             "Write naturally — not as a list of bullet points. "
             "If the excerpts do not address the question, say so honestly.\n\n"
-            "Documents:\n" + "\n\n".join(blocks) + f"\n\nQuestion: {query}\n\nAnswer:"
+            + timing_note
+            + "Documents:\n" + "\n\n".join(blocks) + f"\n\nQuestion: {query}\n\nAnswer:"
         )
         try:
             resp = llm.invoke(prompt)
@@ -243,32 +350,71 @@ def _rag_fallback(query: str, runtime: dict) -> dict:
 # ── Web search answer ──────────────────────────────────────────────────────────
 _WEB_ERROR_SIGNALS = {
     "error", "exception", "maximum allowed length", "rate limit",
-    "invalid query", "bad request",
+    "invalid query", "bad request", "unauthorized", "invalid api", "api key",
+    "401", "403", "incorrect api key",
 }
+
+
+def _tavily_payload_to_snippet(payload: Any) -> str | None:
+    """Turn Tavily tool output (often a dict from the HTTP API) into plain text."""
+    if payload is None:
+        return None
+    if isinstance(payload, dict):
+        if payload.get("error") is not None:
+            return None
+        chunks: list[str] = []
+        ans = payload.get("answer")
+        if isinstance(ans, str) and ans.strip():
+            chunks.append(ans.strip())
+        for row in payload.get("results") or []:
+            if not isinstance(row, dict):
+                continue
+            title = (row.get("title") or "").strip()
+            content = (row.get("content") or row.get("raw_content") or "").strip()
+            url = (row.get("url") or "").strip()
+            line = "\n".join(p for p in (title, content, url) if p)
+            if line:
+                chunks.append(line)
+        text = "\n\n".join(chunks).strip()
+        return text or None
+    if isinstance(payload, str):
+        t = payload.strip()
+        return t or None
+    return str(payload).strip() or None
+
 
 def _tavily_fetch(web_tool, query: str) -> str:
     try:
         result = web_tool.invoke(query.strip()[:200])
-        raw = result.strip() if isinstance(result, str) else str(result).strip()
-        if any(sig in raw.lower()[:300] for sig in _WEB_ERROR_SIGNALS):
-            return ""
-        return raw
     except Exception:
         return ""
 
-def build_web_answer(query_text: str, runtime: dict) -> dict:
+    raw = _tavily_payload_to_snippet(result)
+    if not raw:
+        return ""
+    head = raw.lower()[:600]
+    if any(sig in head for sig in _WEB_ERROR_SIGNALS):
+        return ""
+    return raw
+
+
+def try_complete_web_answer(query_text: str, runtime: dict) -> dict[str, Any] | None:
+    """
+    Produce an answer when live Tavily web search succeeds.
+    Returns None → caller should fall back to internal RAG/agent (no Tavily key, errors, empty results).
+    """
     web_tool = runtime.get("web_tool")
     if not web_tool:
-        return {
-            "answer": "Live web search is not available in this session. Please verify your Tavily API key.",
-            "confidence": "Medium", "sources": [], "source_details": [],
-        }
+        return None
 
     raw = ""
     for attempt in [query_text, " ".join(query_text.split()[:10]), " ".join(query_text.split()[:5])]:
         raw = _tavily_fetch(web_tool, attempt)
-        if raw:
+        if raw and len(raw.strip()) >= 40:
             break
+
+    if not raw or len(raw.strip()) < 40:
+        return None
 
     url_pattern = r"https?://[^\s)\]}>\"'\s]+"
     seen_urls: dict[str, None] = {}
@@ -277,18 +423,6 @@ def build_web_answer(query_text: str, runtime: dict) -> dict:
         if clean:
             seen_urls[clean] = None
     sources = list(seen_urls)[:5]
-
-    if not raw:
-        q = query_text.lower()
-        hint = (
-            "For real-time stock data, check Google Finance, Yahoo Finance, or Bloomberg."
-            if any(w in q for w in ("stock", "price", "share"))
-            else "Try a dedicated platform for the most current information on this topic."
-        )
-        return {
-            "answer": f"Live web data was unavailable for this query. {hint}",
-            "confidence": "Medium", "sources": [], "source_details": [],
-        }
 
     llm = runtime.get("llm")
     if llm:
@@ -310,7 +444,6 @@ def build_web_answer(query_text: str, runtime: dict) -> dict:
         except Exception:
             pass
 
-    # LLM unavailable — extract key figure from raw text
     price_match = None
     for pat in (r"(?:INR|₹)\s?\d[\d,]*(?:\.\d{1,4})?", r"\$\s?\d[\d,]*(?:\.\d{1,4})?"):
         m = re.search(pat, raw)
@@ -334,44 +467,74 @@ def build_web_answer(query_text: str, runtime: dict) -> dict:
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 def route_answer(active_history: list, session_id: str = "default") -> dict:
+    try:
+        return _route_answer_impl(active_history, session_id=session_id)
+    except Exception as e:
+        tb = traceback.format_exc()
+        print(f"[route_answer] FAILED:\n{tb}", file=sys.stderr)
+        return {
+            "answer": (
+                "**Something went wrong on the server while generating a reply.**\n\n"
+                "Typical fixes: restart the backend, ensure **Ollama is running**, and wait for the first "
+                "request to finish (models and the vector store load on demand).\n\n"
+                f"`{type(e).__name__}: {e}`"
+            ),
+            "confidence": "Low",
+            "sources": [],
+            "source_details": [],
+        }
+
+
+def _route_answer_impl(active_history: list, session_id: str = "default") -> dict:
     runtime = initialize_agent()
-    latest_query = active_history[-1]["content"] if active_history else ""
+    latest = active_history[-1] if active_history else {}
+    latest_query = latest.get("content", "") if isinstance(latest, dict) else ""
     query = sanitize_query(latest_query)
 
     if not query:
         return {"answer": "Please enter a valid query.", "confidence": "Medium", "sources": [], "source_details": []}
 
-    # ── Surface clear Ollama-not-running message ──────────────────────────────
-    if runtime.get("llm") is None:
-        ollama_err = runtime.get("ollama_error", "")
-        msg = (
-            "⚠️ **Ollama is not running or the model is not loaded.**\n\n"
-            "To fix this:\n"
-            "1. Open a new terminal\n"
-            "2. Run: `ollama serve`\n"
-            f"3. Then run: `ollama pull {LOCAL_MODEL}`\n"
-            "4. Retry your question.\n\n"
-            + (f"_Technical detail: {ollama_err}_" if ollama_err else "")
-        )
-        return {"answer": msg, "confidence": "Low", "sources": [], "source_details": []}
+    degraded = runtime.get("llm") is None
+    banner = _degraded_llm_banner(runtime) if degraded else ""
 
-    # ── Web path ───────────────────────────────────────────────────────────────
+    # ── Web path (optional) ─────────────────────────────────────────────────────
     if is_external_query(query) and ENABLE_WEB:
-        result = build_web_answer(query, runtime)
-        log_routing_decision(session_id, query, "Web Search", {"confidence": result.get("confidence")})
-        return result
+        web_out = try_complete_web_answer(query, runtime)
+        if web_out:
+            result = dict(web_out)
+            if degraded and result.get("answer"):
+                result["answer"] = banner + result["answer"]
+            log_routing_decision(session_id, query, "Web Search", {"confidence": result.get("confidence")})
+            return result
+        # No Tavily / failed search → same seamless path as other questions (internal RAG + agent)
+        external_without_web_fallback = True
+    else:
+        external_without_web_fallback = False
 
     # ── Internal agent path ────────────────────────────────────────────────────
     hist = []
     for m in active_history[-HISTORY_TURNS:]:
-        hist.append(HumanMessage(content=m["content"]) if m["role"] == "user" else AIMessage(content=m["content"]))
+        if not isinstance(m, dict):
+            continue
+        raw = (m.get("role") or "user").strip().lower()
+        content = m.get("content")
+        if content is None:
+            continue
+        text = content if isinstance(content, str) else str(content)
+        if raw in ("assistant", "ai", "model", "agent"):
+            hist.append(AIMessage(content=text))
+        else:
+            hist.append(HumanMessage(content=text))
 
     ans, srcs, confidence = "", [], "Medium"
 
     if runtime.get("agent"):
         try:
             res = runtime["agent"].invoke({"messages": hist})
-            ans = res["messages"][-1].content
+            state: dict[str, Any] = (
+                res if isinstance(res, dict) else {"messages": list(getattr(res, "messages", []) or [])}
+            )
+            ans = _final_ai_message_text(state)
             srcs = extract_sources_from_answer(ans)
             confidence = "High" if srcs else "Medium"
         except Exception as e:
@@ -379,14 +542,23 @@ def route_answer(active_history: list, session_id: str = "default") -> dict:
             ans = ""
 
     if not ans or len(ans.strip()) < 20:
-        fallback = _rag_fallback(query, runtime)
-        ans, srcs, confidence = fallback["answer"], fallback.get("sources", []), fallback.get("confidence", "Medium")
+        fallback = _rag_fallback(
+            query, runtime, external_without_web=external_without_web_fallback
+        )
+        ans = fallback["answer"]
+        srcs = fallback.get("sources", [])
+        confidence = fallback.get("confidence", "Medium")
+
+    if degraded and ans:
+        ans = banner + ans
 
     # Last-resort source sweep via retriever metadata
     if not srcs:
         try:
             docs = runtime["retriever"].invoke(query)[:5]
-            srcs = sorted({d.metadata.get("source", "") for d in docs if d.metadata.get("source")})
+            cleaned = {_normalize_source(d.metadata.get("source")) for d in docs if d.metadata.get("source")}
+            cleaned.discard("")
+            srcs = sorted(cleaned)
         except Exception:
             pass
 
