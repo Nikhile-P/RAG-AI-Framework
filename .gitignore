@@ -53,3 +53,6 @@ tests/responses/
 # OS
 Thumbs.db
 .DS_Store
+
+# Tool config (local only)
+.claude/

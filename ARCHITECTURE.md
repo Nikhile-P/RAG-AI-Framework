@@ -1,50 +1,52 @@
 # How it works
 
-## The basic flow
+## Request flow
 
 1. **You ask a question** → Frontend sends it to the backend
-2. **Convert to embedding** → Turn your question into a searchable vector
-3. **Search documents** → Find related files in your document library
-4. **Get LLM response** → Use the local model to synthesize an answer
-5. **Show result** → Display answer with sources and confidence
+2. **Embed the query** → Convert the question into a vector for searching
+3. **Search documents** → Find related passages in your document library
+4. **Generate response** → Local model synthesizes an answer from the matches
+5. **Return result** → Answer shown with sources and confidence level
 
-## The pieces
+## Components
 
 **Frontend** (Next.js)
-- Chat interface where you type questions
-- Login with email/SMS code
-- Live dashboard showing what's happening
-- Dark/light theme toggle
+- Chat interface for asking questions
+- Email/SMS OTP sign-in
+- Live analytics and telemetry dashboards
+- Dark/light theme
 
 **Backend** (FastAPI)
-- Receives messages and routes them
-- Searches the vector database
-- Talks to Ollama for AI responses
-- Falls back to web search if documents don't have the answer
-- Logs everything for analytics
+- Receives questions and routes them to the right handler
+- Searches the vector index
+- Talks to Ollama for response generation
+- Falls back to web search when documents don't have the answer
+- Logs queries for analytics
 
-**Data** (ChromaDB)
-- Stores embeddings of all your documents
-- Makes searching fast
-- Automatically updated when you add files
+**Search index** (ChromaDB)
+- Stores vector embeddings of your documents
+- Makes semantic search fast
+- Updated when you run the ingestion script
 
-**AI Model** (Ollama + Qwen 2.5)
-- Small 3B model that runs locally
-- Fast enough for real-time chat
-- No API costs or internet required
+**Inference** (Ollama + Qwen 2.5 3B)
+- 3B parameter model that runs locally
+- Fast enough for real-time use
+- No API costs, no internet required for inference
 
-## How queries get routed
+## Routing logic
 
-- **High confidence match** → Answer from your documents
-- **Medium confidence** → Do additional searching or reasoning
-- **Low confidence** → Fall back to web search for current info
-- **Simple questions** → Just answer directly
+- **High confidence match** → Answer directly from your documents
+- **Medium confidence** → Search further before answering
+- **Low confidence** → Fall back to web search
+- **Simple factual questions** → Answer directly without retrieval
 
-## Stack summary
+## Tech stack
 
-- Frontend: Next.js, React, TypeScript, Tailwind
-- Backend: Python, FastAPI
-- Search: ChromaDB
-- Model: Ollama (Qwen 2.5 3B)
-- Web: Tavily API (for live search)
-- Auth: Email/SMS OTP codes
+| Layer     | Technology                    |
+|-----------|-------------------------------|
+| Frontend  | Next.js · React · TypeScript · Tailwind |
+| Backend   | Python · FastAPI              |
+| Search    | ChromaDB · MiniLM-L6-v2       |
+| Inference | Ollama · Qwen 2.5 3B          |
+| Web       | Tavily API                    |
+| Auth      | Email / SMS OTP               |
