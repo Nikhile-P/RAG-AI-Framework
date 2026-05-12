@@ -1,0 +1,11 @@
+year,quarter,region,business_unit,revenue_usd_m,gross_margin_pct
+2024,Q1,NA,Advanced Infrastructure,420,31.2
+2024,Q2,EMEA,Advanced Infrastructure,398,29.8
+2024,Q3,APAC,Advanced Infrastructure,442,30.4
+2024,Q4,Global,Services,515,34.1
+2025,Q1,NA,Advanced Infrastructure,468,32.0
+2025,Q2,EMEA,Services,536,34.8
+2025,Q3,APAC,Advanced Infrastructure,489,31.3
+2025,Q4,Global,Services,562,35.2
+2026,Q1,NA,Advanced Infrastructure,505,32.7
+2026,Q2,EMEA,Advanced Infrastructure,473,31.1

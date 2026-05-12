@@ -1,0 +1,30 @@
+{
+  "report_date": "2026-05-12",
+  "currency": "USD",
+  "opportunities": [
+    {
+      "account": "Apex Health Network",
+      "region": "NA",
+      "segment": "Healthcare",
+      "stage": "Proposal",
+      "value_m": 18.5,
+      "solution": "SR670 V2 Cluster + Managed Operations"
+    },
+    {
+      "account": "EuroFab Group",
+      "region": "EMEA",
+      "segment": "Manufacturing",
+      "stage": "Negotiation",
+      "value_m": 11.2,
+      "solution": "Smart Edge + Factory Vision"
+    },
+    {
+      "account": "PacificTel",
+      "region": "APAC",
+      "segment": "Telecom",
+      "stage": "Discovery",
+      "value_m": 7.8,
+      "solution": "Processing Grid for 5G Analytics"
+    }
+  ]
+}

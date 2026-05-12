@@ -1,0 +1,19 @@
+Lenovo Global Operations Brief 2026
+
+Executive Context:
+Lenovo enterprise operations focus on resilient supply chains, customer delivery SLAs, and high-performance infrastructure support.
+
+Regional Priorities:
+- North America: Expand enterprise server install base and managed deployment services.
+- EMEA: Increase smart edge deployments for manufacturing and public sector.
+- APAC: Strengthen hyperscale partnerships and sovereign cloud compliance pathways.
+
+Operational KPIs:
+- Average deployment lead time target: 14 business days.
+- Field issue first-response target: 2 hours.
+- Critical incident resolution target: 8 hours.
+
+Risk Controls:
+- Dual-sourcing for key components where feasible.
+- Quarterly stress testing for logistics continuity.
+- Formal firmware governance and staged rollout approvals.

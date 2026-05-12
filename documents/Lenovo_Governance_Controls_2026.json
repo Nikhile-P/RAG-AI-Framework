@@ -1,0 +1,20 @@
+{
+  "framework": "Internal Systems Infrastructure Governance",
+  "controls": [
+    {
+      "id": "SEC-001",
+      "name": "System artifact integrity",
+      "status": "Implemented"
+    },
+    {
+      "id": "OPS-014",
+      "name": "GPU firmware patch window",
+      "status": "Implemented"
+    },
+    {
+      "id": "RISK-022",
+      "name": "Vendor continuity review",
+      "status": "In Progress"
+    }
+  ]
+}

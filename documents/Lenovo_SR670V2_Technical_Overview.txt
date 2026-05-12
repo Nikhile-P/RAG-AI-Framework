@@ -1,0 +1,62 @@
+Document Title: Lenovo ThinkSystem SR670 V2 Technical Overview
+Document ID: LNV-ISG-SR670V2-2024
+Revision: 2.1
+Confidentiality: Internal Use Only
+
+1. Product Overview
+
+The Lenovo ThinkSystem SR670 V2 is a 3U rack server designed for AI, deep learning, high-performance computing (HPC), and data analytics workloads. It supports up to 8 NVIDIA GPUs and is optimized for enterprise AI infrastructure deployments.
+
+2. Processor Specifications
+
+- Supports 2x 3rd Gen Intel Xeon Scalable Processors
+- Maximum 40 cores per CPU
+- PCIe Gen4 support
+
+3. GPU Configuration
+
+Supported GPUs:
+- NVIDIA A100 (40GB / 80GB)
+- NVIDIA H100 (PCIe)
+- NVIDIA L40S
+
+Maximum GPUs: 8
+NVLink support: Yes (select configurations)
+
+4. Memory
+
+- Up to 4TB DDR4 memory
+- 32 DIMM slots
+- Memory speed up to 3200 MT/s
+
+5. Storage
+
+- Up to 16x 2.5” NVMe SSD
+- RAID support via ThinkSystem RAID 940
+
+6. Networking
+
+- 10/25/100 Gb Ethernet support
+- Optional Infiniband connectivity
+
+7. Power & Cooling
+
+- 2x 3000W Titanium Power Supplies
+- Optimized airflow for GPU-dense workloads
+
+8. Target Use Cases
+
+- Large Language Model (LLM) training
+- Computer vision inference
+- Enterprise AI analytics
+- AI-as-a-Service deployments
+
+9. Benchmark Performance (Internal Testing)
+
+Configuration:
+- 8x NVIDIA H100
+- 2x Intel Xeon Platinum 8380
+
+Result:
+- 22% faster training time compared to previous generation SR670
+- 18% improved power efficiency

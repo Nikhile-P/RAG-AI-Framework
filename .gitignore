@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+.next/
+out/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Secrets
+.secrets/
+openAI*
+openLLM*
+
+# Logs
+logs/
+*.log
+router.log
+server.log
+server_err.log
+llm_interactions.log
+
+# Vector DB (runtime-generated)
+vector_db/
+
+# Test outputs
+tests/responses/
+
+# OS
+Thumbs.db
+.DS_Store

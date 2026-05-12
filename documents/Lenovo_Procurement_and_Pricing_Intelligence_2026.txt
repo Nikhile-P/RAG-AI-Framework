@@ -1,0 +1,11 @@
+Lenovo Procurement and Pricing Intelligence 2026
+
+Pricing Levers:
+- Volume-based discounts for multi-rack deployments.
+- Service bundle incentives tied to multi-year agreements.
+- Preferred pricing windows aligned with quarterly planning cycles.
+
+Procurement Best Practices:
+- Lock strategic components 1-2 quarters ahead.
+- Align legal and compliance approvals in pre-proposal phase.
+- Use standard SoW templates for faster contracting.

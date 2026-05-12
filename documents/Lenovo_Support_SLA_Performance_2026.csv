@@ -1,0 +1,9 @@
+month,priority,tickets,first_response_minutes_avg,resolution_hours_avg,sla_met_pct
+Jan,P1,122,18,7.1,97.6
+Jan,P2,301,64,18.2,94.5
+Feb,P1,115,16,6.8,98.1
+Feb,P2,288,61,17.6,95.1
+Mar,P1,130,19,7.4,97.2
+Mar,P2,326,66,19.0,93.9
+Apr,P1,126,17,7.0,97.8
+Apr,P2,314,62,18.4,94.7

@@ -1,0 +1,16 @@
+Lenovo Server Portfolio Matrix 2026
+
+ThinkSystem SR670 V2:
+- Use case: GPU-dense high-performance computing
+- Typical sectors: Healthcare imaging, autonomous systems, industrial analytics
+- Key value: Balanced performance-per-watt for mixed workloads
+
+ThinkSystem SR650 V3:
+- Use case: Enterprise virtualization and advanced analytics
+- Typical sectors: Banking, insurance, retail analytics
+- Key value: Flexible PCIe expansion with broad software compatibility
+
+ThinkEdge SE450:
+- Use case: Edge processing in constrained environments
+- Typical sectors: Logistics, retail stores, smart manufacturing
+- Key value: Ruggedized form factor with remote manageability

@@ -1,0 +1,353 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", "Geist", system-ui, sans-serif;
+}
+
+@layer base {
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+  html {
+    scroll-behavior: smooth;
+    /* Force GPU compositing on the document — eliminates scroll jank */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    @apply bg-[#000000] text-[#e2e8f0] overflow-x-hidden;
+    font-family: var(--font-sans);
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   THEME TOGGLE
+══════════════════════════════════════════════════════════════════════════════ */
+
+.theme-light { filter: invert(1) hue-rotate(180deg); }
+.theme-light img, .theme-light svg, .theme-light video, .theme-light iframe {
+  filter: invert(1) hue-rotate(180deg);
+}
+.theme-light .bento-card { border-color: rgba(0,0,0,0.1) !important; }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   CINEMATIC ORB DRIFT — runs on compositor thread, zero JS cost
+   Three independent timings so each variant feels different
+══════════════════════════════════════════════════════════════════════════════ */
+
+@keyframes orbDrift1 {
+  0%   { transform: translate(0px,   0px)   scale(1.00); }
+  25%  { transform: translate(34px, -22px)  scale(1.07); }
+  50%  { transform: translate(12px,  18px)  scale(0.96); }
+  75%  { transform: translate(-28px, -8px)  scale(1.04); }
+  100% { transform: translate(0px,   0px)   scale(1.00); }
+}
+
+@keyframes orbDrift2 {
+  0%   { transform: translate(0px,   0px)   scale(1.00); }
+  25%  { transform: translate(-30px, 20px)  scale(0.94); }
+  50%  { transform: translate(18px,  -15px) scale(1.10); }
+  75%  { transform: translate(8px,   28px)  scale(0.97); }
+  100% { transform: translate(0px,   0px)   scale(1.00); }
+}
+
+@keyframes orbDrift3 {
+  0%   { transform: translate(0px,   0px)   scale(1.00); }
+  33%  { transform: translate(22px,  26px)  scale(1.05); }
+  66%  { transform: translate(-18px, -20px) scale(0.93); }
+  100% { transform: translate(0px,   0px)   scale(1.00); }
+}
+
+.orb-drift-1 { animation: orbDrift1 24s ease-in-out infinite; }
+.orb-drift-2 { animation: orbDrift2 30s ease-in-out infinite; }
+.orb-drift-3 { animation: orbDrift3 20s ease-in-out infinite; }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   FLOAT — gentle 3D-depth bobbing for featured UI elements
+══════════════════════════════════════════════════════════════════════════════ */
+
+@keyframes floatY {
+  0%, 100% { transform: translateY(0px) scale(1); }
+  50%       { transform: translateY(-9px) scale(1.008); }
+}
+.float-y { animation: floatY 5.5s ease-in-out infinite; }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   SVG VISUALIZATION ANIMATIONS — used by CinematicScene SVG components
+   All run on compositor thread (opacity + transform only)
+══════════════════════════════════════════════════════════════════════════════ */
+
+/* Flowing dash along active neural path */
+@keyframes neuralDash {
+  to { stroke-dashoffset: -28; }
+}
+.neural-dash {
+  animation: neuralDash 1.6s linear infinite;
+}
+
+/* Pulsing active node */
+@keyframes nodePulse {
+  0%, 100% { opacity: 0.75; transform: scale(1); }
+  50%       { opacity: 1;    transform: scale(1.15); }
+}
+.node-pulse {
+  animation: nodePulse 2.4s ease-in-out infinite;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
+/* Expanding ring on search query */
+@keyframes queryRing {
+  0%   { r: 10; opacity: 0.8; }
+  100% { r: 28; opacity: 0; }
+}
+.query-ring {
+  animation: queryRing 2s ease-out infinite;
+}
+
+/* Hub glow pulse (enterprise arch centre) */
+@keyframes hubPulse {
+  0%, 100% { opacity: 0.7; }
+  50%       { opacity: 1; }
+}
+.hub-pulse {
+  animation: hubPulse 3s ease-in-out infinite;
+}
+
+/* Flowing dash on architecture connections */
+@keyframes archDash {
+  to { stroke-dashoffset: -24; }
+}
+.arch-dash {
+  animation: archDash 3s linear infinite;
+}
+
+/* Shimmer for skeleton loading bars */
+@keyframes shimmer {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+.animate-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.animate-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.06) 50%, transparent 100%);
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   HERO AMBIENT BACKGROUND ORBS — pure CSS, no JS
+══════════════════════════════════════════════════════════════════════════════ */
+
+@keyframes heroOrb1 {
+  0%, 100% { transform: translate(0, 0) scale(1);    opacity: 0.55; }
+  40%      { transform: translate(3%, -2%) scale(1.12); opacity: 0.75; }
+  70%      { transform: translate(-2%, 1.5%) scale(0.95); opacity: 0.5; }
+}
+
+@keyframes heroOrb2 {
+  0%, 100% { transform: translate(0, 0) scale(1);     opacity: 0.4; }
+  35%      { transform: translate(-3%, 2%) scale(0.9);  opacity: 0.6; }
+  65%      { transform: translate(2%, -1%) scale(1.15); opacity: 0.45; }
+}
+
+.hero-orb-1 { animation: heroOrb1 18s ease-in-out infinite; }
+.hero-orb-2 { animation: heroOrb2 23s ease-in-out infinite; }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   BENTO CARD — mouse-tracking highlight
+══════════════════════════════════════════════════════════════════════════════ */
+
+.bento-card {
+  background: rgba(10, 10, 12, 0.7);
+  backdrop-filter: blur(40px);
+  -webkit-backdrop-filter: blur(40px);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 28px;
+  padding: 36px;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.4s cubic-bezier(0.22,1,0.36,1),
+              border-color 0.3s ease,
+              box-shadow 0.4s ease;
+  text-decoration: none;
+  color: inherit;
+  display: block;
+  /* Reveal is handled by Framer Motion whileInView on the wrapper */
+}
+.bento-card::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.14), transparent);
+  opacity: 0.6;
+}
+/* Mouse-tracking radial highlight */
+.bento-card::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: radial-gradient(600px circle at var(--mouse-x,50%) var(--mouse-y,50%),
+    rgba(255,255,255,0.055), transparent 40%);
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  pointer-events: none;
+}
+.bento-card:hover {
+  transform: translateY(-9px) perspective(900px) rotateX(2.5deg);
+  border-color: rgba(255,255,255,0.13);
+  box-shadow: 0 32px 60px rgba(0,0,0,0.60), 0 0 0 1px rgba(255,255,255,0.05);
+}
+.bento-card:hover::after { opacity: 1; }
+
+@keyframes cardReveal {
+  from { opacity: 0; transform: translateY(32px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   NAVIGATION / UI ANIMATIONS
+══════════════════════════════════════════════════════════════════════════════ */
+
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+@keyframes fadeInDown {
+  from { opacity: 0; transform: translateY(-16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulseDot {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position:  200% center; }
+}
+
+.animate-fade-in-down { animation: fadeInDown 0.7s cubic-bezier(0.22,1,0.36,1) both; }
+.animate-fade-in-up   { animation: fadeInUp   0.7s cubic-bezier(0.22,1,0.36,1) both; }
+.animate-pulse-dot    { animation: pulseDot 2s ease-in-out infinite; }
+.animate-shimmer {
+  background-size: 200% auto;
+  animation: shimmer 4s linear infinite;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   SCROLLBAR
+══════════════════════════════════════════════════════════════════════════════ */
+
+.custom-scrollbar::-webkit-scrollbar { width: 4px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.08);
+  border-radius: 999px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255,255,255,0.16);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   WORKSPACE / CHAT MICRO-INTERACTIONS
+══════════════════════════════════════════════════════════════════════════════ */
+
+.source-chip {
+  display: inline-flex; align-items: center; gap: .5rem;
+  padding: .45rem .9rem; border-radius: 999px; font-size: 12px;
+  transition: transform .2s cubic-bezier(0.22,1,0.36,1),
+              box-shadow .2s ease,
+              background-color .2s ease;
+  cursor: pointer;
+}
+.source-chip:hover {
+  transform: translateY(-3px) scale(1.02);
+  box-shadow: 0 10px 28px rgba(0,0,0,0.45);
+}
+.source-chip.web  { background: rgba(0,0,0,0.18); border: 1px solid rgba(255,255,255,0.04); }
+.source-chip.file { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   STREAMLIT PARITY CLASSES
+══════════════════════════════════════════════════════════════════════════════ */
+
+.status-dot {
+  width: 8px; height: 8px;
+  background: #4ADE80; border-radius: 50%;
+  display: inline-block;
+  box-shadow: 0 0 10px #4ADE80;
+}
+.status-pulse { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: #4ADE80; margin-right: 6px; animation: pulseDot 2s infinite; }
+
+.bot-header-box {
+  display: flex; align-items: center; justify-content: center; gap: 1.5rem;
+  background: linear-gradient(155deg, rgba(22,27,34,0.82), rgba(255,255,255,0.04));
+  backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+  padding: 1.5rem; border-radius: 24px;
+  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  margin: 0 auto 3rem auto; max-width: 750px;
+}
+.bot-avatar-circle {
+  background: linear-gradient(135deg, #E2231A, #FF4B4B);
+  width: 60px; height: 60px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 2rem; flex-shrink: 0;
+}
+.quick-actions-title {
+  text-align: center; font-size: 0.75rem; font-weight: 700;
+  letter-spacing: 4px; text-transform: uppercase;
+  margin-bottom: 1.35rem;
+  color: rgba(226,232,240,0.75);
+}
+.sso-panel {
+  margin: 3.5rem auto 1rem auto;
+  background: linear-gradient(160deg, rgba(22,27,34,0.96), rgba(255,255,255,0.03));
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 22px; padding: 1.9rem;
+  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  box-shadow: 0 16px 40px rgba(0,0,0,0.42);
+}
+.source-navigator-container {
+  margin-top: 1.5rem; padding: 1.2rem;
+  background: linear-gradient(160deg, rgba(226,35,26,0.08), rgba(88,166,255,0.06));
+  border: 1px solid rgba(226,35,26,0.2); border-radius: 24px;
+  backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+  box-shadow: 0 8px 24px rgba(226,35,26,0.08);
+}
+.source-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 0.6rem 1rem;
+  background: linear-gradient(145deg, rgba(22,27,34,0.88), rgba(255,255,255,0.05));
+  border: 1px solid rgba(226,35,26,0.25); border-radius: 999px;
+  cursor: pointer; font-size: 0.85rem; font-weight: 500;
+  color: #e2e8f0; white-space: nowrap; overflow: hidden; position: relative;
+  transition: transform 0.2s cubic-bezier(0.22,1,0.36,1),
+              border-color 0.2s ease,
+              box-shadow 0.2s ease;
+}
+.source-pill:hover {
+  transform: translateY(-2px) scale(1.05);
+  border-color: #E2231A;
+  box-shadow: 0 10px 24px rgba(226,35,26,0.2);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   PREFERENCES PANEL — counter-invert in light mode so it always looks dark
+══════════════════════════════════════════════════════════════════════════════ */
+
+.theme-light .pref-panel {
+  filter: invert(1) hue-rotate(180deg);
+}
