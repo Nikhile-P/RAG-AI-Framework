@@ -30,10 +30,8 @@ type Message = {
 };
 type UserProfile = { name: string; email: string; role: string };
 
-function getInitialAuthState(): { authed: boolean; user: UserProfile | null } {
-  if (typeof window === "undefined") {
-    return { authed: false, user: null };
-  }
+// Auth is now checked only on the client inside useEffect to avoid SSR/client mismatch
+function readAuthFromStorage(): { authed: boolean; user: UserProfile | null } {
   try {
     const raw = localStorage.getItem("lenovo_ai_auth");
     if (!raw) return { authed: false, user: null };
@@ -929,19 +927,27 @@ function ChatArea({
 
 export default function WorkspacePage() {
   const router = useRouter();
-  const [{ authed, user }] = useState<{ authed: boolean; user: UserProfile | null }>(() => getInitialAuthState());
+  // Start with null so both server and client render the same loading state
+  // Auth is resolved client-side only in useEffect — no hydration mismatch
+  const [authed, setAuthed] = useState<boolean | null>(null);
+  const [user, setUser] = useState<UserProfile | null>(null);
   const [counter, setCounter] = useState(1);
   const [currentId, setCurrentId] = useState("Chat 1");
   const [sessions, setSessions]   = useState<Record<string, Message[]>>({ "Chat 1": [] });
 
-  // Auth guard — reads localStorage session written by sign-in page
+  // Client-only auth check — runs after hydration, no server/client mismatch
   useEffect(() => {
-    if (!authed) {
+    const { authed: a, user: u } = readAuthFromStorage();
+    if (!a) {
       router.replace("/sign-in");
+    } else {
+      setAuthed(true);
+      setUser(u);
     }
-  }, [authed, router]);
+  }, [router]);
 
-  if (!authed || !user) {
+  // Show loading spinner while auth state is being resolved
+  if (authed !== true || !user) {
     return (
       <div className="min-h-screen bg-black flex flex-col items-center justify-center gap-7">
         <motion.div
@@ -963,7 +969,7 @@ export default function WorkspacePage() {
           className="flex flex-col items-center gap-1.5"
         >
           <span className="font-extrabold text-[20px] text-white tracking-tight">
-            Lenovo<span className="text-red-500">.</span>AI
+            Lenovo<span className="text-red-500">.</span>LABS
           </span>
           <span className="text-[10px] text-white/20 font-bold uppercase tracking-[0.26em]">Research Workspace</span>
         </motion.div>
