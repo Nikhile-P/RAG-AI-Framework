@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter", "Geist", system-ui, sans-serif;
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
 }
 
 @layer base {
@@ -59,9 +59,9 @@
   100% { transform: translate(0px,   0px)   scale(1.00); }
 }
 
-.orb-drift-1 { animation: orbDrift1 24s ease-in-out infinite; }
-.orb-drift-2 { animation: orbDrift2 30s ease-in-out infinite; }
-.orb-drift-3 { animation: orbDrift3 20s ease-in-out infinite; }
+.orb-drift-1 { animation: orbDrift1 24s ease-in-out infinite; will-change: transform; }
+.orb-drift-2 { animation: orbDrift2 30s ease-in-out infinite; will-change: transform; }
+.orb-drift-3 { animation: orbDrift3 20s ease-in-out infinite; will-change: transform; }
 
 /* ══════════════════════════════════════════════════════════════════════════════
    FLOAT — gentle 3D-depth bobbing for featured UI elements

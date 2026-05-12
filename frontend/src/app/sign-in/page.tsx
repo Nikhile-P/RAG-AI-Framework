@@ -6,7 +6,7 @@ import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { Mail, Phone, ArrowRight, RefreshCw, ShieldCheck, ChevronLeft } from "lucide-react";
 
-const API = "http://localhost:8000";
+const API = "";
 const ease = [0.22, 1, 0.36, 1] as const;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

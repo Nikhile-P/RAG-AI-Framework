@@ -939,8 +939,42 @@ export default function WorkspacePage() {
 
   if (!authed || !user) {
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
-        <div className="w-10 h-10 rounded-full border-2 border-white/[0.08] border-t-cyan-500 animate-spin" />
+      <div className="min-h-screen bg-black flex flex-col items-center justify-center gap-7">
+        <motion.div
+          initial={{ scale: 0.75, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+          className="p-4 rounded-[18px]"
+          style={{ background: "#E2231A", boxShadow: "0 0 48px rgba(226,35,26,0.45), 0 0 96px rgba(226,35,26,0.15)" }}
+        >
+          <svg width="34" height="34" viewBox="0 0 32 32" fill="none">
+            <path d="M10 16L16 10L22 16" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M16 10V22" stroke="white" strokeWidth="3" strokeLinecap="round" />
+          </svg>
+        </motion.div>
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.18, ease: [0.22, 1, 0.36, 1] }}
+          className="flex flex-col items-center gap-1.5"
+        >
+          <span className="font-extrabold text-[20px] text-white tracking-tight">
+            Lenovo<span className="text-red-500">.</span>AI
+          </span>
+          <span className="text-[10px] text-white/20 font-bold uppercase tracking-[0.26em]">Research Workspace</span>
+        </motion.div>
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.38 }}
+          className="flex gap-1.5"
+        >
+          {[0, 1, 2].map(i => (
+            <motion.div key={i} className="w-1.5 h-1.5 rounded-full bg-white/18"
+              animate={{ opacity: [0.18, 0.9, 0.18] }}
+              transition={{ duration: 0.9, repeat: Infinity, delay: i * 0.22 }} />
+          ))}
+        </motion.div>
       </div>
     );
   }
@@ -961,7 +995,12 @@ export default function WorkspacePage() {
   };
 
   return (
-    <div className="flex h-screen bg-[#0A0D12] text-slate-200 font-sans overflow-hidden">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+      className="flex h-screen bg-[#0A0D12] text-slate-200 font-sans overflow-hidden"
+    >
       <Sidebar
         user={user}
         onLogout={() => {
@@ -978,6 +1017,6 @@ export default function WorkspacePage() {
         messages={msgs}
         setMessages={m => setSessions(s => ({ ...s, [currentId]: m }))}
       />
-    </div>
+    </motion.div>
   );
 }

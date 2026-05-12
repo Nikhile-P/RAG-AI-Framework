@@ -427,7 +427,7 @@ export default function AnalyticsDashboard() {
   useEffect(() => {
     const poll = async () => {
       try {
-        const res = await fetch("http://localhost:8000/api/telemetry");
+        const res = await fetch("/api/telemetry");
         if (res.ok) {
           const d = await res.json();
           setLive({ total_queries: d.total_queries ?? 0, avg_relevance: +(d.avg_relevance ?? 0).toFixed(2), file_count: d.file_count ?? 0 });

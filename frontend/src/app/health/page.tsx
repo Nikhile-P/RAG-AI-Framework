@@ -133,7 +133,7 @@ export default function HealthPage() {
     const doFetch = async () => {
       setRefreshing(true);
       try {
-        const res = await axios.get("http://localhost:8000/api/telemetry", { timeout: 4000 });
+        const res = await axios.get("/api/telemetry", { timeout: 4000 });
         setTelemetry(res.data);
         setBackendOnline(true);
         setLastUpdated(new Date());
@@ -287,8 +287,8 @@ export default function HealthPage() {
           >
             <AlertCircle size={16} className="text-yellow-400 flex-shrink-0" />
             <div>
-              <p className="text-[13px] font-semibold text-yellow-300">Backend unreachable</p>
-              <p className="text-[12px] text-yellow-400/60 mt-0.5">Start FastAPI on port 8000 to see live data. Showing empty state.</p>
+              <p className="text-[13px] font-semibold text-yellow-300">Backend offline</p>
+              <p className="text-[12px] text-yellow-400/60 mt-0.5">Start the backend server to see live data.</p>
             </div>
           </motion.div>
         )}
