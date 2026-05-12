@@ -771,12 +771,16 @@ function ChatArea({
           body: (res.data.answer ?? "Answer ready.").slice(0, 120),
         });
       }
-    } catch {
+    } catch (err: any) {
+      // THIS PRINTS THE EXACT PYTHON BUG ON YOUR SCREEN
+      const pythonError = err.response?.data?.detail || err.message || "Unknown Crash";
+      const errorMsg = typeof pythonError === 'object' ? JSON.stringify(pythonError) : pythonError;
+      
       setMessages([
         ...next,
         {
           role: "assistant",
-          content: "**Connection error** — FastAPI backend is unreachable. Ensure it is running on port 8000.",
+          content: `**Backend Error Details:** \n\n\`${errorMsg}\` \n\nCheck your FastAPI terminal for the full traceback!`,
         },
       ]);
     } finally {

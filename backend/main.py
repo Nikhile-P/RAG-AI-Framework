@@ -1,6 +1,7 @@
 import os
 import ast
 import random
+import traceback
 import smtplib
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
@@ -246,7 +247,9 @@ async def chat(req: ChatRequest):
         result = route_answer(req.chat_history + [{"role": "user", "content": req.message}])
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        tb = traceback.format_exc()
+        print(f"[Chat] ERROR:\n{tb}")
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n\n{tb}")
 
 if __name__ == "__main__":
     import uvicorn

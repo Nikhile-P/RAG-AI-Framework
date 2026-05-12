@@ -131,10 +131,14 @@ def log_routing_decision(session_id: str, query: str, path: str, details: dict) 
 # ── Agent initialization ───────────────────────────────────────────────────────
 def initialize_agent():
     global global_runtime
-    if global_runtime:
+
+    # If we already have a working runtime with an LLM, return it directly
+    if global_runtime and global_runtime.get("llm") is not None:
         return global_runtime
 
     load_dotenv()
+
+    # Build retriever (always works — no Ollama needed)
     embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
     db = Chroma(
         persist_directory=os.path.join(BASE_DIR, "vector_db"),
@@ -151,18 +155,22 @@ def initialize_agent():
         document_prompt=PromptTemplate.from_template("Source: {source}\n\n{page_content}"),
     )
 
-    web_tool = None
-    if ENABLE_WEB:
+    # Web tool (optional)
+    web_tool = global_runtime.get("web_tool") if global_runtime else None
+    if web_tool is None and ENABLE_WEB:
         try:
             web_tool = TavilySearch(max_results=4)
         except Exception:
             pass
 
+    # Try to connect to Ollama — retry-friendly (doesn't cache failure)
     llm = None
+    ollama_error = None
     try:
         llm = ChatOllama(model=LOCAL_MODEL, temperature=0.1, num_predict=512, num_ctx=4096)
-        llm.invoke("ping")
-    except Exception:
+        llm.invoke("ping")  # verify Ollama is alive
+    except Exception as e:
+        ollama_error = str(e)
         llm = None
 
     agent_prompt = (
@@ -174,8 +182,15 @@ def initialize_agent():
     )
     agent = create_react_agent(model=llm, tools=[internal_tool], prompt=agent_prompt) if llm else None
 
-    global_runtime = {"agent": agent, "llm": llm, "retriever": retriever, "web_tool": web_tool}
-    return global_runtime
+    # Only permanently cache if LLM is available; otherwise allow retry on next request
+    runtime = {"agent": agent, "llm": llm, "retriever": retriever, "web_tool": web_tool, "ollama_error": ollama_error}
+    if llm is not None:
+        global_runtime = runtime
+    else:
+        # Cache retriever/web_tool but NOT as the final runtime so LLM is retried next call
+        global_runtime = None
+
+    return runtime
 
 # ── Internal RAG fallback (when agent is unavailable) ─────────────────────────
 def _rag_fallback(query: str, runtime: dict) -> dict:
@@ -326,6 +341,20 @@ def route_answer(active_history: list, session_id: str = "default") -> dict:
     if not query:
         return {"answer": "Please enter a valid query.", "confidence": "Medium", "sources": [], "source_details": []}
 
+    # ── Surface clear Ollama-not-running message ──────────────────────────────
+    if runtime.get("llm") is None:
+        ollama_err = runtime.get("ollama_error", "")
+        msg = (
+            "⚠️ **Ollama is not running or the model is not loaded.**\n\n"
+            "To fix this:\n"
+            "1. Open a new terminal\n"
+            "2. Run: `ollama serve`\n"
+            f"3. Then run: `ollama pull {LOCAL_MODEL}`\n"
+            "4. Retry your question.\n\n"
+            + (f"_Technical detail: {ollama_err}_" if ollama_err else "")
+        )
+        return {"answer": msg, "confidence": "Low", "sources": [], "source_details": []}
+
     # ── Web path ───────────────────────────────────────────────────────────────
     if is_external_query(query) and ENABLE_WEB:
         result = build_web_answer(query, runtime)
@@ -345,7 +374,8 @@ def route_answer(active_history: list, session_id: str = "default") -> dict:
             ans = res["messages"][-1].content
             srcs = extract_sources_from_answer(ans)
             confidence = "High" if srcs else "Medium"
-        except Exception:
+        except Exception as e:
+            print(f"[Agent] invoke error: {e}")
             ans = ""
 
     if not ans or len(ans.strip()) < 20:
