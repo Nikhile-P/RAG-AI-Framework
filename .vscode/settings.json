@@ -1,1 +1,10 @@
-{ "python.defaultInterpreterPath": "${workspaceFolder}\\venv\\Scripts\\python.exe" }
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}\\venv\\Scripts\\python.exe",
+  "files.exclude": {
+    "**/.claude": true,
+    "**/venv": true,
+    "**/__pycache__": true,
+    "**/vector_db": true,
+    "**/.secrets": true
+  }
+}
