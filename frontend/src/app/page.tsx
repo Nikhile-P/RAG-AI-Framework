@@ -106,12 +106,12 @@ function CinematicImageBand({ theme }: { theme: BandTheme }) {
         <div className="orb-drift-1 absolute rounded-full" style={{
           width: "48vw", height: "48vw", left: "4%", top: "5%",
           background: `radial-gradient(circle, ${c.orb1} 0%, transparent 65%)`,
-          filter: "blur(70px)",
+          filter: "blur(40px)",
         }} />
         <div className="orb-drift-2 absolute rounded-full" style={{
           width: "36vw", height: "36vw", right: "6%", bottom: "8%",
           background: `radial-gradient(circle, ${c.orb2} 0%, transparent 65%)`,
-          filter: "blur(85px)",
+          filter: "blur(50px)",
         }} />
       </motion.div>
 
@@ -287,12 +287,12 @@ export default function LandingPage() {
           <div className="hero-orb-1 absolute rounded-full" style={{
             width: "65vw", height: "65vw", left: "-16%", top: "-18%",
             background: "radial-gradient(circle, rgba(0,180,220,0.11) 0%, transparent 65%)",
-            filter: "blur(72px)",
+            filter: "blur(40px)",
           }} />
           <div className="hero-orb-2 absolute rounded-full" style={{
             width: "55vw", height: "55vw", right: "-12%", bottom: "-22%",
             background: "radial-gradient(circle, rgba(220,30,20,0.10) 0%, transparent 65%)",
-            filter: "blur(88px)",
+            filter: "blur(50px)",
           }} />
         </div>
 

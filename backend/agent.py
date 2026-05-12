@@ -17,9 +17,9 @@ from langchain_core.messages import HumanMessage, AIMessage
 from dotenv import load_dotenv
 
 # ── Configuration ──────────────────────────────────────────────────────────────
-RETRIEVER_K       = int(os.getenv("RETRIEVER_K", "8"))
-RETRIEVER_FETCH_K = int(os.getenv("RETRIEVER_FETCH_K", "24"))
-RETRIEVER_LAMBDA  = float(os.getenv("RETRIEVER_LAMBDA", "0.42"))
+RETRIEVER_K       = int(os.getenv("RETRIEVER_K", "10"))
+RETRIEVER_FETCH_K = int(os.getenv("RETRIEVER_FETCH_K", "30"))
+RETRIEVER_LAMBDA  = float(os.getenv("RETRIEVER_LAMBDA", "0.5"))
 MAX_EVIDENCE      = int(os.getenv("MAX_EVIDENCE_SNIPPETS", "5"))
 HISTORY_TURNS     = int(os.getenv("LOCAL_HISTORY_MESSAGES", "6"))
 LOCAL_MODEL       = os.getenv("LOCAL_MODEL_NAME", "qwen2.5:3b")
@@ -32,15 +32,16 @@ _runtime_init_lock = threading.Lock()
 
 AGENT_SYSTEM_PROMPT = (
     "You are a senior enterprise research analyst at Lenovo. "
-    "Your goal is to provide accurate, data-driven insights based on Lenovo's internal document corpus. "
-    "Follow these rules strictly:\n"
-    "1. **Primary Tool**: Use the 'lenovo_internal' tool to search for all queries. Do not assume you know the answer without checking the corpus first.\n"
-    "2. **Evidence-Based Answers**: Every claim you make MUST be backed by a specific document from the search results.\n"
-    "3. **Citation Format**: Always cite the source using '(Source: filename.ext)' immediately after the relevant sentence or paragraph.\n"
-    "4. **Professional Tone**: Write in natural, executive-level prose. Avoid generic filler. Be concise but thorough.\n"
-    "5. **Honesty & Integrity**: If the document corpus does not contain the information requested, state that clearly. Do not make up facts or hallucinate data.\n"
-    "6. **Synthesize**: When multiple documents provide pieces of an answer, synthesize them into a cohesive narrative.\n"
-    "7. **Formatting**: Use Markdown for clarity (headers, lists) where appropriate, but keep the overall flow professional."
+    "Your goal is to provide accurate, data-driven insights by synthesizing Lenovo's internal document corpus and real-time web data.\n\n"
+    "### Operational Pattern:\n"
+    "1. **Internal Context First**: For any Lenovo-specific query (products like ThinkPad, policies, internal news), always use the 'lenovo_internal' tool first.\n"
+    "2. **Web Augmentation**: Use 'tavily_search_results_json' to supplement internal data with current market trends, stock prices, or competitor analysis.\n"
+    "3. **Multi-Hop Synthesis**: If the internal search provides partial info, use the web search to fill the gaps. Do not provide two separate answers; synthesize them into one cohesive report.\n\n"
+    "### Response Standards:\n"
+    "- **Precision**: Use specific numbers, dates, and names from the tools.\n"
+    "- **Citations**: Cite every fact. Internal: '(Source: filename.ext)'. Web: '(Source: domain.com)'.\n"
+    "- **Transparency**: If tools return conflicting data, highlight the discrepancy and provide a reasoned perspective.\n"
+    "- **Formatting**: Use bold text for key insights and ### headers for sections."
 )
 
 
@@ -107,7 +108,7 @@ def _degraded_llm_banner(runtime: dict) -> str:
 
 # ── Query routing ──────────────────────────────────────────────────────────────
 _EXTERNAL_TERMS = {
-    "stock price", "share price", "live price", "market cap", "trading",
+    "stock price", "share price", "live price", "market cap", "trading", "stock",
     "bitcoin", "cryptocurrency", "crypto", "ethereum", "gold price", "oil price",
     "exchange rate", "forex", "nse", "bse", "nasdaq", "nyse",
     "ipl", "cricket", "score", "match", "live score", "scorecard",
@@ -115,6 +116,8 @@ _EXTERNAL_TERMS = {
     "olympics", "world cup", "tournament", "fixture", "result",
     "news", "latest", "weather", "right now", "as of today",
     "currently", "today", "yesterday", "tomorrow", "sports", "market", "quote",
+    "ceo", "revenue", "fiscal year", "earnings", "headquarters", "founded",
+    "competitor", "market share", "announcement", "release date",
 }
 
 def is_external_query(query_text: str) -> bool:
@@ -195,17 +198,18 @@ def extract_sources_from_answer(answer: str) -> list:
             seen.add(raw)
     return list(seen)
 
-def log_routing_decision(session_id: str, query: str, path: str, details: dict) -> None:
+def log_routing_decision(session_id, query, strategy, details=None, latency=0.0):
     entry = {
-        "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "session": session_id,
-        "query": query,
-        "path": path,
-        "details": details,
+        "timestamp": time.time(),
+        "session_id": session_id,
+        "query": query[:100],
+        "path": strategy,
+        "details": details or {},
+        "latency": latency
     }
     try:
-        with open(os.path.join(BASE_DIR, "router.log"), "a", encoding="utf-8") as lf:
-            lf.write(str(entry) + "\n")
+        with open(LOG_FILE, "a") as f:
+            f.write(str(entry) + "\n")
     except Exception:
         pass
 
@@ -228,7 +232,14 @@ def _ensure_vector_runtime() -> dict:
     web_tool = None
     if ENABLE_WEB and tavily_key:
         try:
-            web_tool = TavilySearch(max_results=4, tavily_api_key=tavily_key)
+            from langchain_tavily import TavilySearch
+            web_tool = TavilySearch(
+                max_results=5, 
+                search_depth="advanced", 
+                tavily_api_key=tavily_key
+            )
+            if hasattr(web_tool, "name"):
+                web_tool.name = "tavily_search_results_json"
         except Exception as e:
             print(f"[Web] Tavily init skipped: {e}")
     return {
@@ -237,6 +248,7 @@ def _ensure_vector_runtime() -> dict:
         "llm": None,
         "agent": None,
         "ollama_error": None,
+        "web_status": "Ready" if web_tool else "Disabled",
     }
 
 
@@ -258,12 +270,16 @@ def _attach_ollama_agent(runtime: dict) -> dict:
         ollama_error = str(e)
         llm = None
 
+    tools = [internal_tool]
+    if runtime.get("web_tool"):
+        tools.append(runtime["web_tool"])
+
     agent = None
     if llm:
         try:
             agent = create_agent(
                 model=llm,
-                tools=[internal_tool],
+                tools=tools,
                 system_prompt=AGENT_SYSTEM_PROMPT,
             )
         except Exception as e:
@@ -336,6 +352,9 @@ def _rag_fallback(query: str, runtime: dict, *, external_without_web: bool = Fal
             ans = resp.content if hasattr(resp, "content") else str(resp)
             if ans and len(ans.strip()) > 20:
                 confidence = "High" if len(unique_sources) >= 2 else "Medium"
+                # If the LLM says it can't address the question, lower the confidence
+                if "not possible" in ans.lower() or "not address" in ans.lower() or "no information" in ans.lower():
+                    confidence = "Low"
                 return {"answer": ans, "confidence": confidence, "sources": unique_sources}
         except Exception:
             pass
@@ -347,7 +366,20 @@ def _rag_fallback(query: str, runtime: dict, *, external_without_web: bool = Fal
     )
     return {"answer": answer, "confidence": "Medium", "sources": unique_sources}
 
-# ── Web search answer ──────────────────────────────────────────────────────────
+# ── Web search answer (Optimized with Cache) ──────────────────────────────────
+_WEB_CACHE = {}
+_CACHE_TTL = 3600 # 1 hour
+
+def _get_cached_web(query: str) -> str | None:
+    if query in _WEB_CACHE:
+        val, ts = _WEB_CACHE[query]
+        if time.time() - ts < _CACHE_TTL:
+            return val
+    return None
+
+def _set_cached_web(query: str, val: str):
+    _WEB_CACHE[query] = (val, time.time())
+
 _WEB_ERROR_SIGNALS = {
     "error", "exception", "maximum allowed length", "rate limit",
     "invalid query", "bad request", "unauthorized", "invalid api", "api key",
@@ -369,11 +401,13 @@ def _tavily_payload_to_snippet(payload: Any) -> str | None:
         for row in payload.get("results") or []:
             if not isinstance(row, dict):
                 continue
-            title = (row.get("title") or "").strip()
+            title = (row.get("title") or "Search Result").strip()
             content = (row.get("content") or row.get("raw_content") or "").strip()
             url = (row.get("url") or "").strip()
-            line = "\n".join(p for p in (title, content, url) if p)
-            if line:
+            # Clean up content a bit
+            content = re.sub(r"\s+", " ", content)[:800]
+            line = f"TITLE: {title}\nCONTENT: {content}\nURL: {url}"
+            if content:
                 chunks.append(line)
         text = "\n\n".join(chunks).strip()
         return text or None
@@ -383,10 +417,29 @@ def _tavily_payload_to_snippet(payload: Any) -> str | None:
     return str(payload).strip() or None
 
 
+def _rewrite_query_for_web(llm, query: str, history: list) -> str:
+    if not llm:
+        return query
+    prompt = (
+        "Given the conversation history and the latest user query, rewrite the query to be optimized for a web search engine (Tavily). "
+        "Focus on extracting the core intent, entities, and required real-time information. "
+        "Return ONLY the rewritten query text.\n\n"
+        f"Query: {query}\n\nRewritten Query:"
+    )
+    try:
+        resp = llm.invoke(prompt)
+        text = _normalize_message_content(resp.content if hasattr(resp, "content") else str(resp)).strip()
+        return text if text else query
+    except Exception:
+        return query
+
+
 def _tavily_fetch(web_tool, query: str) -> str:
     try:
-        result = web_tool.invoke(query.strip()[:200])
-    except Exception:
+        # Limit query length for API safety
+        result = web_tool.invoke(query.strip()[:240])
+    except Exception as e:
+        print(f"[Web] Tavily invoke failed for '{query}': {e}")
         return ""
 
     raw = _tavily_payload_to_snippet(result)
@@ -407,11 +460,21 @@ def try_complete_web_answer(query_text: str, runtime: dict) -> dict[str, Any] | 
     if not web_tool:
         return None
 
-    raw = ""
-    for attempt in [query_text, " ".join(query_text.split()[:10]), " ".join(query_text.split()[:5])]:
-        raw = _tavily_fetch(web_tool, attempt)
-        if raw and len(raw.strip()) >= 40:
-            break
+    llm = runtime.get("llm")
+    
+    # ── Step 1: Optimized Query Rewriting ──
+    search_query = _rewrite_query_for_web(llm, query_text, []) if llm else query_text
+    
+    raw = _get_cached_web(search_query)
+    if raw:
+        print(f"[Web] Cache hit for '{search_query}'")
+    else:
+        # Try rewritten query first, then original
+        for attempt in [search_query, query_text]:
+            raw = _tavily_fetch(web_tool, attempt)
+            if raw and len(raw.strip()) >= 40:
+                _set_cached_web(search_query, raw)
+                break
 
     if not raw or len(raw.strip()) < 40:
         return None
@@ -424,22 +487,22 @@ def try_complete_web_answer(query_text: str, runtime: dict) -> dict[str, Any] | 
             seen_urls[clean] = None
     sources = list(seen_urls)[:5]
 
-    llm = runtime.get("llm")
     if llm:
         prompt = (
             "You are a precise research analyst. Based on the search results below, "
             "answer the question in 3-5 sentences of natural, professional prose. "
             "Include specific figures, dates, or facts where present. "
             "Mention the source at the end.\n\n"
-            f"Question: {query_text}\n\nSearch Results:\n{raw[:2500]}\n\nAnswer:"
+            f"Question: {query_text}\n\nSearch Results:\n{raw[:3000]}\n\nAnswer:"
         )
         try:
             resp = llm.invoke(prompt)
             answer = resp.content if hasattr(resp, "content") else str(resp)
             if answer and len(answer.strip()) > 20:
                 return {
-                    "answer": answer, "confidence": "Medium",
+                    "answer": answer, "confidence": "High",
                     "sources": sources, "source_details": build_source_details(sources),
+                    "trace": "Web Search (LLM Synthesized)"
                 }
         except Exception:
             pass
@@ -496,15 +559,17 @@ def _route_answer_impl(active_history: list, session_id: str = "default") -> dic
 
     degraded = runtime.get("llm") is None
     banner = _degraded_llm_banner(runtime) if degraded else ""
-
-    # ── Web path (optional) ─────────────────────────────────────────────────────
+    start_time = time.time()
+    
+    # ── Intelligent Routing ──
+    # If it's a known external query, prioritize the web path for real-time accuracy.
     if is_external_query(query) and ENABLE_WEB:
         web_out = try_complete_web_answer(query, runtime)
         if web_out:
             result = dict(web_out)
             if degraded and result.get("answer"):
                 result["answer"] = banner + result["answer"]
-            log_routing_decision(session_id, query, "Web Search", {"confidence": result.get("confidence")})
+            log_routing_decision(session_id, query, "Web Search (Fast Path)", {"confidence": result.get("confidence")})
             return result
         # No Tavily / failed search → same seamless path as other questions (internal RAG + agent)
         external_without_web_fallback = True
@@ -569,4 +634,5 @@ def _route_answer_impl(active_history: list, session_id: str = "default") -> dic
     return {
         "answer": ans, "confidence": confidence,
         "sources": srcs, "source_details": build_source_details(srcs),
+        "trace": "Agentic Orchestration (Internal + Web)" if runtime.get("web_tool") else "RAG Execution"
     }

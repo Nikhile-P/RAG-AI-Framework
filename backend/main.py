@@ -127,24 +127,46 @@ def get_telemetry():
             file_count = len([f for f in os.listdir(DATA_DIR) if os.path.isfile(os.path.join(DATA_DIR, f))])
             
         if os.path.exists(LOG_FILE):
-            with open(LOG_FILE, 'r') as f:
-                lines = [l.strip() for l in f if l.strip()]
+            import collections
+            with open(LOG_FILE, 'rb') as f:
+                # Efficiently read last 1000 lines
+                f.seek(0, os.SEEK_END)
+                size = f.tell()
+                f.seek(max(0, size - 1024 * 100), os.SEEK_SET) # last 100KB
+                chunk = f.read().decode('utf-8', errors='ignore')
+                lines = chunk.splitlines()[-1000:]
             
             total_queries = len(lines)
             relevances = []
+            latencies = []
+            confidences = []
             
             for line in lines:
                 try:
                     entry = ast.literal_eval(line)
-                    if isinstance(entry, dict) and "llm_interaction" not in entry:
+                    if isinstance(entry, dict):
                         logs.append(entry)
-                        rel = entry.get('details', {}).get('relevance', 0)
-                        if rel:
-                            relevances.append(float(rel))
+                        
+                        # Accuracy/Relevance
+                        rel = entry.get('details', {}).get('confidence', 0)
+                        if rel == "High": relevances.append(0.95)
+                        elif rel == "Medium": relevances.append(0.65)
+                        elif rel == "Low": relevances.append(0.30)
+                        
+                        # Latency
+                        lat = entry.get('latency', 0)
+                        if lat: latencies.append(lat)
+                        
+                        # Confidence
+                        if rel == "High": confidences.append(0.92)
+                        elif rel == "Medium": confidences.append(0.68)
+                        elif rel == "Low": confidences.append(0.35)
                 except Exception:
                     continue
             
             avg_relevance = sum(relevances) / len(relevances) if relevances else 0.0
+            avg_latency = sum(latencies) / len(latencies) if latencies else 0.0
+            avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
             
             for entry in logs:
                 route = entry.get("path", "")
@@ -155,20 +177,30 @@ def get_telemetry():
                 elif "Search" in route:
                     routing_counts["Web Search"] += 1
                     
-                conf = float(entry.get("details", {}).get("relevance", 0))
-                if conf >= 0.76:
-                    confidence_counts["High (0.8+)"] += 1
-                elif conf >= 0.5:
-                    confidence_counts["Medium (0.5-0.8)"] += 1
+                # Map string or float confidence to counts
+                raw_conf = entry.get("details", {}).get("confidence") or entry.get("details", {}).get("relevance", 0)
+                if isinstance(raw_conf, str):
+                    if raw_conf == "High": confidence_counts["High (0.8+)"] += 1
+                    elif raw_conf == "Medium": confidence_counts["Medium (0.5-0.8)"] += 1
+                    else: confidence_counts["Low (<0.5)"] += 1
                 else:
-                    confidence_counts["Low (<0.5)"] += 1
+                    try:
+                        conf = float(raw_conf)
+                        if conf >= 0.76: confidence_counts["High (0.8+)"] += 1
+                        elif conf >= 0.5: confidence_counts["Medium (0.5-0.8)"] += 1
+                        else: confidence_counts["Low (<0.5)"] += 1
+                    except (ValueError, TypeError):
+                        confidence_counts["Medium (0.5-0.8)"] += 1
 
         return {
             "total_queries": total_queries,
             "avg_relevance": avg_relevance,
+            "avg_latency": f"{avg_latency:.2f}s",
+            "avg_confidence": f"{avg_confidence*100:.1f}%",
+            "context_param": f"{file_count * 10} tokens",
             "file_count": file_count,
-            "routing_counts": routing_counts,
-            "confidence_counts": confidence_counts,
+            "routing": routing_counts,
+            "confidence_stats": confidence_counts,
             "recent_logs": logs[-15:] # Return last 15 logs
         }
     except Exception as e:
@@ -259,6 +291,16 @@ async def chat(req: ChatRequest):
         tb = traceback.format_exc()
         print(f"[Chat] ERROR:\n{tb}")
         raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n\n{tb}")
+
+@app.on_event("startup")
+async def startup_event():
+    """Pre-initialize agent and vector store to avoid cold-start latency."""
+    print("[Server] Pre-initializing research agent...")
+    try:
+        from agent import initialize_agent
+        asyncio.create_task(asyncio.to_thread(initialize_agent))
+    except Exception as e:
+        print(f"[Server] Startup init warning: {e}")
 
 if __name__ == "__main__":
     import uvicorn

@@ -33,11 +33,11 @@ function NeuralRoutingViz({ accent }: { accent: string }) {
     <svg viewBox="0 0 860 560" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
       <defs>
         <filter id={glowId} x="-50%" y="-50%" width="200%" height="200%">
-          <feGaussianBlur stdDeviation="5" result="blur" />
+          <feGaussianBlur stdDeviation="3" result="blur" />
           <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
         </filter>
         <filter id={pathGlowId} x="-20%" y="-50%" width="140%" height="200%">
-          <feGaussianBlur stdDeviation="3" result="blur" />
+          <feGaussianBlur stdDeviation="2" result="blur" />
           <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
         </filter>
       </defs>
@@ -156,7 +156,7 @@ function VectorSearchViz({ accent }: { accent: string }) {
     <svg viewBox="0 0 800 520" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
       <defs>
         <filter id={glowId} x="-60%" y="-60%" width="220%" height="220%">
-          <feGaussianBlur stdDeviation="6" result="blur" />
+          <feGaussianBlur stdDeviation="4" result="blur" />
           <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
         </filter>
       </defs>
@@ -250,11 +250,11 @@ function EnterpriseArchViz({ accent }: { accent: string }) {
     <svg viewBox="0 0 880 580" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
       <defs>
         <filter id={glowId} x="-60%" y="-60%" width="220%" height="220%">
-          <feGaussianBlur stdDeviation="8" result="blur" />
+          <feGaussianBlur stdDeviation="5" result="blur" />
           <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
         </filter>
         <filter id="ea_nodeglow" x="-100%" y="-100%" width="300%" height="300%">
-          <feGaussianBlur stdDeviation="4" result="blur" />
+          <feGaussianBlur stdDeviation="2" result="blur" />
           <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
         </filter>
       </defs>
@@ -393,12 +393,12 @@ export default function CinematicScene({ variant }: { variant: Variant }) {
         <div className="orb-drift-1 absolute rounded-full pointer-events-none" style={{
           width: "36vw", height: "36vw", left: "3%", top: "8%",
           background: `radial-gradient(circle, ${c.orb1Color} 0%, transparent 65%)`,
-          filter: "blur(55px)",
+          filter: "blur(40px)",
         }} />
         <div className="orb-drift-2 absolute rounded-full pointer-events-none" style={{
           width: "28vw", height: "28vw", right: "5%", bottom: "8%",
           background: `radial-gradient(circle, ${c.orb2Color} 0%, transparent 65%)`,
-          filter: "blur(70px)",
+          filter: "blur(50px)",
         }} />
 
         {/* Cinematic edge vignette */}

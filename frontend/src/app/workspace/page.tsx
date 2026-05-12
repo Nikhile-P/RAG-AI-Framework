@@ -27,6 +27,7 @@ type Message = {
   sources?: string[];
   source_details?: SourceDetail[];
   confidence?: "High" | "Medium" | "Low" | string;
+  trace?: string;
 };
 type UserProfile = { name: string; email: string; role: string };
 
@@ -335,18 +336,25 @@ function MessageBubble({ msg, idx }: { msg: Message; idx: number }) {
           <SourcesPanel sources={msg.sources} source_details={msg.source_details} />
         ) : null}
 
-        {/* Confidence badge */}
-        {!isUser && msg.confidence && (
-          <div className="mt-3">
-            <span className={`inline-flex items-center text-[9px] font-bold tracking-[0.15em] uppercase px-2.5 py-1 rounded-full border ${
-              msg.confidence === "High"
-                ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
-                : msg.confidence === "Medium"
-                ? "bg-yellow-500/10 border-yellow-500/20 text-yellow-400"
-                : "bg-red-500/10 border-red-500/20 text-red-400"
-            }`}>
-              {msg.confidence} Confidence
-            </span>
+        {/* Confidence & Trace badges */}
+        {!isUser && (msg.confidence || msg.trace) && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {msg.trace && (
+              <span className="inline-flex items-center text-[9px] font-bold tracking-[0.15em] uppercase px-2.5 py-1 rounded-full border bg-white/5 border-white/10 text-white/40">
+                ⚡ {msg.trace}
+              </span>
+            )}
+            {msg.confidence && (
+              <span className={`inline-flex items-center text-[9px] font-bold tracking-[0.15em] uppercase px-2.5 py-1 rounded-full border ${
+                msg.confidence === "High"
+                  ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+                  : msg.confidence === "Medium"
+                  ? "bg-yellow-500/10 border-yellow-500/20 text-yellow-400"
+                  : "bg-red-500/10 border-red-500/20 text-red-400"
+              }`}>
+                {msg.confidence} Confidence
+              </span>
+            )}
           </div>
         )}
       </div>
@@ -760,6 +768,7 @@ function ChatArea({
           sources: res.data.sources ?? [],
           source_details: res.data.source_details ?? [],
           confidence: res.data.confidence ?? undefined,
+          trace: res.data.trace ?? undefined,
         },
       ]);
       // Fire OS notification if tab is hidden and user has it enabled

@@ -164,12 +164,14 @@
 ══════════════════════════════════════════════════════════════════════════════ */
 
 .bento-card {
-  background: rgba(10, 10, 12, 0.7);
-  backdrop-filter: blur(40px);
-  -webkit-backdrop-filter: blur(40px);
+  background: rgba(10, 10, 12, 0.8);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255,255,255,0.06);
   border-radius: 28px;
   padding: 36px;
+  will-change: transform;
+  contain: layout style;
   position: relative;
   overflow: hidden;
   transition: transform 0.4s cubic-bezier(0.22,1,0.36,1),
@@ -293,12 +295,13 @@
 
 .bot-header-box {
   display: flex; align-items: center; justify-content: center; gap: 1.5rem;
-  background: linear-gradient(155deg, rgba(22,27,34,0.82), rgba(255,255,255,0.04));
-  backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+  background: linear-gradient(155deg, rgba(22,27,34,0.85), rgba(255,255,255,0.04));
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
   padding: 1.5rem; border-radius: 24px;
   border: 1px solid rgba(255,255,255,0.08);
   box-shadow: 0 8px 24px rgba(0,0,0,0.35);
   margin: 0 auto 3rem auto; max-width: 750px;
+  contain: layout style;
 }
 .bot-avatar-circle {
   background: linear-gradient(135deg, #E2231A, #FF4B4B);
@@ -317,15 +320,17 @@
   background: linear-gradient(160deg, rgba(22,27,34,0.96), rgba(255,255,255,0.03));
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 22px; padding: 1.9rem;
-  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
   box-shadow: 0 16px 40px rgba(0,0,0,0.42);
+  contain: layout style;
 }
 .source-navigator-container {
   margin-top: 1.5rem; padding: 1.2rem;
   background: linear-gradient(160deg, rgba(226,35,26,0.08), rgba(88,166,255,0.06));
   border: 1px solid rgba(226,35,26,0.2); border-radius: 24px;
-  backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
   box-shadow: 0 8px 24px rgba(226,35,26,0.08);
+  contain: layout style;
 }
 .source-pill {
   display: inline-flex; align-items: center; gap: 6px;
