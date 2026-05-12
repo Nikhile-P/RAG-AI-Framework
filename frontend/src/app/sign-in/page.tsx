@@ -4,55 +4,61 @@ import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mail, Phone, ArrowRight, RefreshCw, ShieldCheck, ChevronLeft } from "lucide-react";
+import { Mail, Phone, ArrowRight, RefreshCw, ShieldCheck, ChevronLeft, User } from "lucide-react";
 
-const API = "";
 const ease = [0.22, 1, 0.36, 1] as const;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function saveSession(identifier: string) {
-  const name = identifier.includes("@")
+function saveSession(identifier: string, displayName?: string) {
+  const fallback = identifier.includes("@")
     ? identifier.split("@")[0]
     : identifier.replace(/\D/g, "").slice(-4).padStart(4, "*");
-  localStorage.setItem("lenovo_ai_auth", JSON.stringify({ email: identifier, name, ts: Date.now() }));
-}
-
-function getErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message) return error.message;
-  return fallback;
+  localStorage.setItem(
+    "lenovo_ai_auth",
+    JSON.stringify({ email: identifier, name: displayName?.trim() || fallback, ts: Date.now() })
+  );
 }
 
 const COUNTRY_CODES = [
-  { flag: "🇮🇳", code: "+91",  name: "India"  },
-  { flag: "🇺🇸", code: "+1",   name: "US"     },
-  { flag: "🇬🇧", code: "+44",  name: "UK"     },
-  { flag: "🇸🇬", code: "+65",  name: "Singapore" },
-  { flag: "🇦🇺", code: "+61",  name: "Australia" },
-  { flag: "🇩🇪", code: "+49",  name: "Germany" },
+  { flag: "🇮🇳", code: "+91", name: "India"      },
+  { flag: "🇺🇸", code: "+1",  name: "US"         },
+  { flag: "🇬🇧", code: "+44", name: "UK"         },
+  { flag: "🇸🇬", code: "+65", name: "Singapore"  },
+  { flag: "🇦🇺", code: "+61", name: "Australia"  },
+  { flag: "🇩🇪", code: "+49", name: "Germany"    },
 ];
 
-// ─── OTP input ────────────────────────────────────────────────────────────────
+// ─── Input style helpers ──────────────────────────────────────────────────────
 
-function OtpInput({ value, onChange, disabled }: { value: string[]; onChange: (v: string[]) => void; disabled?: boolean }) {
+const inputBase: React.CSSProperties = {
+  background: "rgba(255,255,255,0.04)",
+  border: "1.5px solid rgba(255,255,255,0.09)",
+};
+const inputFocusBorder = "1.5px solid rgba(34,211,238,0.35)";
+const inputRestBorder  = "1.5px solid rgba(255,255,255,0.09)";
+const inputErrorBorder = "1.5px solid rgba(226,35,26,0.5)";
+
+// ─── OTP boxes ────────────────────────────────────────────────────────────────
+
+function OtpInput({ value, onChange, disabled }: {
+  value: string[]; onChange: (v: string[]) => void; disabled?: boolean;
+}) {
   const refs = useRef<(HTMLInputElement | null)[]>([]);
-
   const focus = (i: number) => setTimeout(() => refs.current[i]?.focus(), 0);
 
   const handleChange = (i: number, raw: string) => {
     if (!/^\d*$/.test(raw)) return;
-    const next = [...value];
-    next[i] = raw.slice(-1);
-    onChange(next);
+    const next = [...value]; next[i] = raw.slice(-1); onChange(next);
     if (raw && i < 5) focus(i + 1);
   };
-
   const handleKey = (i: number, e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Backspace" && !value[i] && i > 0) { const n = [...value]; n[i - 1] = ""; onChange(n); focus(i - 1); }
+    if (e.key === "Backspace" && !value[i] && i > 0) {
+      const n = [...value]; n[i - 1] = ""; onChange(n); focus(i - 1);
+    }
     if (e.key === "ArrowLeft"  && i > 0) focus(i - 1);
     if (e.key === "ArrowRight" && i < 5) focus(i + 1);
   };
-
   const handlePaste = (e: React.ClipboardEvent) => {
     const d = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
     if (d.length === 6) { onChange(d.split("")); focus(5); }
@@ -62,14 +68,8 @@ function OtpInput({ value, onChange, disabled }: { value: string[]; onChange: (v
   return (
     <div className="flex gap-2.5 justify-center" onPaste={handlePaste}>
       {value.map((d, i) => (
-        <input
-          key={i}
-          ref={el => { refs.current[i] = el; }}
-          type="text"
-          inputMode="numeric"
-          maxLength={1}
-          value={d}
-          disabled={disabled}
+        <input key={i} ref={el => { refs.current[i] = el; }}
+          type="text" inputMode="numeric" maxLength={1} value={d} disabled={disabled}
           onChange={e => handleChange(i, e.target.value)}
           onKeyDown={e => handleKey(i, e)}
           className="w-12 h-14 text-center text-xl font-bold text-white rounded-xl outline-none transition-all duration-200 disabled:opacity-40"
@@ -101,32 +101,23 @@ function Bg() {
 export default function SignInPage() {
   const router = useRouter();
 
-  // Tabs
-  const [mode,   setMode]   = useState<"email" | "phone">("email");
-
-  // Email path
-  const [email,  setEmail]  = useState("");
-
-  // Phone path
+  const [flow,    setFlow]    = useState<"signin" | "signup">("signin");
+  const [mode,    setMode]    = useState<"email" | "phone">("email");
+  const [name,    setName]    = useState("");
+  const [email,   setEmail]   = useState("");
   const [country, setCountry] = useState(COUNTRY_CODES[0]);
   const [phone,   setPhone]   = useState("");
-
-  // OTP
-  const [otp,    setOtp]    = useState(["", "", "", "", "", ""]);
+  const [otp,     setOtp]     = useState(["", "", "", "", "", ""]);
   const [devCode, setDevCode] = useState<string | null>(null);
+  const [step,    setStep]    = useState<"input" | "otp" | "done">("input");
+  const [busy,    setBusy]    = useState(false);
+  const [error,   setError]   = useState("");
+  const [cooldown,setCooldown]= useState(0);
 
-  // UI state
-  const [step,    setStep]   = useState<"input" | "otp" | "done">("input");
-  const [busy,    setBusy]   = useState(false);
-  const [error,   setError]  = useState("");
-  const [cooldown, setCooldown] = useState(0);
-
-  // Redirect if already signed in
   useEffect(() => {
     try { if (localStorage.getItem("lenovo_ai_auth")) router.replace("/workspace"); } catch {}
   }, [router]);
 
-  // Resend cooldown tick
   useEffect(() => {
     if (cooldown <= 0) return;
     const t = setTimeout(() => setCooldown(c => c - 1), 1000);
@@ -137,61 +128,57 @@ export default function SignInPage() {
     ? email.trim().toLowerCase()
     : `${country.code}${phone.trim()}`;
 
+  const switchFlow = (f: "signin" | "signup") => {
+    setFlow(f); setError(""); setName("");
+    setEmail(""); setPhone(""); setOtp(["","","","","",""]);
+  };
+
   const verify = async (digits: string[] = otp) => {
     const code = digits.join("");
     if (code.length < 6) { setError("Enter all 6 digits."); return; }
     setBusy(true); setError("");
-    try {
-      const res = await fetch(`${API}/api/verify-otp`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ identifier, code }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail ?? "Verification failed.");
-      saveSession(identifier);
-      setStep("done");
-      setTimeout(() => router.replace("/workspace"), 1400);
-    } catch (err: unknown) {
-      setError(getErrorMessage(err, "Wrong code."));
-      setBusy(false);
-    }
+    
+    // MOCK VERIFICATION LOGIC (No fetch calls)
+    setTimeout(() => {
+      if (code === devCode || code === "000000") { // 000000 is the master bypass key
+        saveSession(identifier, flow === "signup" ? name : undefined);
+        setStep("done");
+        setTimeout(() => router.replace("/workspace"), 1500);
+      } else {
+        setError("Wrong code — try again.");
+        setBusy(false);
+      }
+    }, 800);
   };
 
   const handleOtpChange = (next: string[]) => {
-    setOtp(next);
-    setError("");
-    if (step === "otp" && next.every(d => d !== "") && !busy) {
-      void verify(next);
-    }
+    setOtp(next); setError("");
+    if (step === "otp" && next.every(d => d !== "") && !busy) void verify(next);
   };
 
   const sendCode = async (e?: React.FormEvent) => {
     e?.preventDefault();
+    if (flow === "signup" && name.trim().length < 2) {
+      setError("Enter your name (at least 2 characters)."); return;
+    }
     if (mode === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       setError("Enter a valid email address."); return;
     }
     if (mode === "phone" && phone.trim().length < 7) {
       setError("Enter a valid phone number."); return;
     }
+    
     setBusy(true); setError("");
-    try {
-      const res = await fetch(`${API}/api/send-otp`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ identifier, mode }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail ?? "Failed to send code.");
-      setDevCode(data.dev_code ?? null);   // show if backend returns it (no SMTP/Twilio configured)
+
+    // MOCK OTP GENERATION LOGIC (No fetch calls)
+    setTimeout(() => {
+      const generatedCode = Math.floor(100000 + Math.random() * 900000).toString();
+      setDevCode(generatedCode);
       setStep("otp");
       setCooldown(30);
       setOtp(["", "", "", "", "", ""]);
-    } catch (err: unknown) {
-      setError(getErrorMessage(err, "Could not send code. Is the backend running?"));
-    } finally {
       setBusy(false);
-    }
+    }, 800);
   };
 
   return (
@@ -199,15 +186,17 @@ export default function SignInPage() {
       <Bg />
 
       {/* Brand */}
-      <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease }}
-        className="relative z-10 mb-10">
+      <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, ease }} className="relative z-10 mb-10">
         <Link href="/" className="flex items-center gap-3 group">
           <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
             <rect width="32" height="32" rx="8" fill="#E2231A" />
             <path d="M10 16L16 10L22 16" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
             <path d="M16 10V22" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
           </svg>
-          <span className="font-bold text-[18px] text-white group-hover:text-white/70 transition-colors">Lenovo.LABS</span>
+          <span className="font-bold text-[18px] text-white group-hover:text-white/70 transition-colors">
+            Lenovo.LABS
+          </span>
         </Link>
       </motion.div>
 
@@ -222,81 +211,139 @@ export default function SignInPage() {
         <div className="p-8">
           <AnimatePresence mode="wait">
 
-            {/* ── Step 1: Identifier input ── */}
+            {/* ── Step 1: Input ── */}
             {step === "input" && (
-              <motion.div key="input" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} transition={{ duration: 0.28, ease }}>
-
-                <h1 className="text-[22px] font-extrabold text-white mb-1.5">Sign in</h1>
-                <p className="text-[13px] text-white/35 mb-6">We&apos;ll send a 6-digit code to verify it&apos;s you.</p>
-
-                {/* Email / Phone toggle */}
-                <div className="flex gap-1 p-1 rounded-xl mb-5" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}>
-                  {(["email", "phone"] as const).map(t => (
-                    <button key={t} onClick={() => { setMode(t); setError(""); }}
-                      className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[12px] font-bold transition-all duration-200"
+              <motion.div key="input"
+                initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }}
+                transition={{ duration: 0.28, ease }}
+              >
+                {/* Sign in / Sign up toggle */}
+                <div className="flex gap-1 p-1 rounded-xl mb-6"
+                  style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
+                  {(["signin", "signup"] as const).map(f => (
+                    <button key={f} onClick={() => switchFlow(f)}
+                      className="flex-1 py-2.5 rounded-lg text-[13px] font-bold transition-all duration-200"
                       style={{
-                        background: mode === t ? "rgba(255,255,255,0.09)" : "transparent",
-                        color: mode === t ? "white" : "rgba(255,255,255,0.35)",
+                        background: flow === f ? "rgba(226,35,26,0.18)" : "transparent",
+                        color:      flow === f ? "white" : "rgba(255,255,255,0.30)",
+                        border:     flow === f ? "1px solid rgba(226,35,26,0.30)" : "1px solid transparent",
                       }}
                     >
-                      {t === "email" ? <Mail size={13} /> : <Phone size={13} />}
-                      {t === "email" ? "Email" : "Phone"}
+                      {f === "signin" ? "Sign in" : "Sign up"}
                     </button>
                   ))}
                 </div>
 
-                <form onSubmit={sendCode} className="space-y-4">
+                <p className="text-[13px] text-white/35 mb-5">
+                  {flow === "signup"
+                    ? "Create your account — we'll send a code to verify."
+                    : "We'll send a 6-digit code to verify it's you."}
+                </p>
+
+                <form onSubmit={sendCode} className="space-y-3">
+
+                  {/* Name field — signup only, slides in/out */}
+                  <AnimatePresence>
+                    {flow === "signup" && (
+                      <motion.div
+                        key="name-field"
+                        initial={{ opacity: 0, height: 0, marginBottom: 0 }}
+                        animate={{ opacity: 1, height: "auto", marginBottom: 4 }}
+                        exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+                        transition={{ duration: 0.28, ease }}
+                        className="overflow-hidden"
+                      >
+                        <div className="relative">
+                          <User size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/25 pointer-events-none" />
+                          <input
+                            type="text"
+                            placeholder="Your name"
+                            value={name}
+                            onChange={e => { setName(e.target.value); setError(""); }}
+                            className="w-full rounded-xl pl-10 pr-4 py-3.5 text-[14px] text-white placeholder:text-white/20 outline-none transition-all duration-200"
+                            style={{ ...inputBase, border: error && !name.trim() ? inputErrorBorder : inputRestBorder }}
+                            onFocus={e => { e.currentTarget.style.border = inputFocusBorder; }}
+                            onBlur={e => { e.currentTarget.style.border = error && !name.trim() ? inputErrorBorder : inputRestBorder; }}
+                          />
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  {/* Email / Phone toggle */}
+                  <div className="flex gap-1 p-1 rounded-xl"
+                    style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}>
+                    {(["email", "phone"] as const).map(t => (
+                      <button key={t} type="button" onClick={() => { setMode(t); setError(""); }}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[12px] font-bold transition-all duration-200"
+                        style={{
+                          background: mode === t ? "rgba(255,255,255,0.09)" : "transparent",
+                          color:      mode === t ? "white" : "rgba(255,255,255,0.35)",
+                        }}
+                      >
+                        {t === "email" ? <Mail size={13} /> : <Phone size={13} />}
+                        {t === "email" ? "Email" : "Phone"}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Email or Phone input */}
                   {mode === "email" ? (
                     <input type="email" autoFocus placeholder="you@company.com"
                       value={email} onChange={e => { setEmail(e.target.value); setError(""); }}
                       className="w-full rounded-xl px-4 py-3.5 text-[14px] text-white placeholder:text-white/20 outline-none transition-all duration-200"
-                      style={{ background: "rgba(255,255,255,0.04)", border: `1.5px solid ${error ? "rgba(226,35,26,0.5)" : "rgba(255,255,255,0.09)"}` }}
-                      onFocus={e => { if (!error) e.currentTarget.style.border = "1.5px solid rgba(34,211,238,0.35)"; }}
-                      onBlur={e => { if (!error) e.currentTarget.style.border = "1.5px solid rgba(255,255,255,0.09)"; }}
+                      style={{ ...inputBase, border: error && !email.trim() ? inputErrorBorder : inputRestBorder }}
+                      onFocus={e => { e.currentTarget.style.border = inputFocusBorder; }}
+                      onBlur={e => { e.currentTarget.style.border = inputRestBorder; }}
                     />
                   ) : (
                     <div className="flex gap-2">
-                      {/* Country selector */}
-                      <div className="relative">
-                        <select
-                          value={country.code}
-                          onChange={e => setCountry(COUNTRY_CODES.find(c => c.code === e.target.value)!)}
-                          className="h-full rounded-xl px-3 py-3.5 text-[13px] text-white/80 outline-none appearance-none pr-7 transition-all duration-200"
-                          style={{ background: "rgba(255,255,255,0.06)", border: "1.5px solid rgba(255,255,255,0.09)", minWidth: 88 }}
-                        >
-                          {COUNTRY_CODES.map(c => (
-                            <option key={c.code} value={c.code} style={{ background: "#0a0a12" }}>
-                              {c.flag} {c.code}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
+                      <select value={country.code}
+                        onChange={e => setCountry(COUNTRY_CODES.find(c => c.code === e.target.value)!)}
+                        className="rounded-xl px-3 py-3.5 text-[13px] text-white/80 outline-none appearance-none transition-all duration-200"
+                        style={{ background: "rgba(255,255,255,0.06)", border: "1.5px solid rgba(255,255,255,0.09)", minWidth: 88 }}
+                      >
+                        {COUNTRY_CODES.map(c => (
+                          <option key={c.code} value={c.code} style={{ background: "#0a0a12" }}>
+                            {c.flag} {c.code}
+                          </option>
+                        ))}
+                      </select>
                       <input type="tel" autoFocus placeholder="Phone number"
                         value={phone} onChange={e => { setPhone(e.target.value.replace(/\D/g, "")); setError(""); }}
                         className="flex-1 rounded-xl px-4 py-3.5 text-[14px] text-white placeholder:text-white/20 outline-none transition-all duration-200"
-                        style={{ background: "rgba(255,255,255,0.04)", border: `1.5px solid ${error ? "rgba(226,35,26,0.5)" : "rgba(255,255,255,0.09)"}` }}
-                        onFocus={e => { if (!error) e.currentTarget.style.border = "1.5px solid rgba(34,211,238,0.35)"; }}
-                        onBlur={e => { if (!error) e.currentTarget.style.border = "1.5px solid rgba(255,255,255,0.09)"; }}
+                        style={{ ...inputBase, border: error && !phone.trim() ? inputErrorBorder : inputRestBorder }}
+                        onFocus={e => { e.currentTarget.style.border = inputFocusBorder; }}
+                        onBlur={e => { e.currentTarget.style.border = inputRestBorder; }}
                       />
                     </div>
                   )}
 
-                  {error && <p className="text-[11px] text-red-400 pl-1">{error}</p>}
+                  {error && (
+                    <motion.p initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}
+                      className="text-[11px] text-red-400 pl-1">{error}
+                    </motion.p>
+                  )}
 
                   <button type="submit" disabled={busy}
-                    className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-[14px] text-white transition-all duration-200 disabled:opacity-50"
+                    className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-[14px] text-white transition-all duration-200 disabled:opacity-50 mt-1"
                     style={{ background: "#E2231A" }}
                   >
-                    {busy ? <RefreshCw size={15} className="animate-spin" /> : <>Send code <ArrowRight size={15} /></>}
+                    {busy
+                      ? <RefreshCw size={15} className="animate-spin" />
+                      : <>{flow === "signup" ? "Create account" : "Send code"} <ArrowRight size={15} /></>
+                    }
                   </button>
                 </form>
               </motion.div>
             )}
 
-            {/* ── Step 2: OTP entry ── */}
+            {/* ── Step 2: OTP ── */}
             {step === "otp" && (
-              <motion.div key="otp" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} transition={{ duration: 0.28, ease }}>
-
+              <motion.div key="otp"
+                initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }}
+                transition={{ duration: 0.28, ease }}
+              >
                 <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-5"
                   style={{ background: "rgba(34,211,238,0.10)", border: "1px solid rgba(34,211,238,0.22)" }}>
                   <ShieldCheck size={18} className="text-cyan-400" />
@@ -306,7 +353,7 @@ export default function SignInPage() {
                   Sent to <span className="text-white/65 font-semibold">{identifier}</span>
                 </p>
 
-                {/* Dev mode banner — shown when backend has no email/SMS configured */}
+                {/* Dev banner — shows code when no email/SMS configured */}
                 {devCode && (
                   <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}
                     className="flex items-center gap-3 px-4 py-3 rounded-xl mb-5"
@@ -334,8 +381,10 @@ export default function SignInPage() {
                 </button>
 
                 <div className="flex items-center justify-between mt-4">
-                  <button onClick={() => { setStep("input"); setOtp(["","","","","",""]); setError(""); setDevCode(null); }}
-                    className="flex items-center gap-1 text-[11px] text-white/30 hover:text-white/55 transition-colors">
+                  <button
+                    onClick={() => { setStep("input"); setOtp(["","","","","",""]); setError(""); setDevCode(null); }}
+                    className="flex items-center gap-1 text-[11px] text-white/30 hover:text-white/55 transition-colors"
+                  >
                     <ChevronLeft size={12} /> Change {mode === "email" ? "email" : "number"}
                   </button>
                   <button onClick={() => sendCode()} disabled={cooldown > 0}
@@ -348,24 +397,38 @@ export default function SignInPage() {
 
             {/* ── Step 3: Done ── */}
             {step === "done" && (
-              <motion.div key="done" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+              <motion.div key="done"
+                initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.35, ease }}
                 className="py-6 flex flex-col items-center text-center"
               >
-                <motion.div initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+                <motion.div
+                  initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
                   transition={{ duration: 0.45, ease: [0.34, 1.56, 0.64, 1] }}
                   className="w-14 h-14 rounded-full flex items-center justify-center mb-5"
-                  style={{ background: "rgba(52,211,153,0.12)", border: "1.5px solid rgba(52,211,153,0.35)" }}
+                  style={
+                    flow === "signup"
+                      ? { background: "rgba(167,139,250,0.12)", border: "1.5px solid rgba(167,139,250,0.35)" }
+                      : { background: "rgba(52,211,153,0.12)",  border: "1.5px solid rgba(52,211,153,0.35)"  }
+                  }
                 >
-                  <ShieldCheck size={26} className="text-emerald-400" />
+                  <ShieldCheck size={26} className={flow === "signup" ? "text-violet-400" : "text-emerald-400"} />
                 </motion.div>
-                <h2 className="text-[20px] font-extrabold text-white mb-2">You&apos;re in</h2>
-                <p className="text-[13px] text-white/35">Taking you to the workspace…</p>
+
+                <h2 className="text-[20px] font-extrabold text-white mb-2">
+                  {flow === "signup" ? `Welcome, ${name.trim() || "there"}!` : "You're in"}
+                </h2>
+                <p className="text-[13px] text-white/35">
+                  {flow === "signup" ? "Account created. Taking you to the workspace…" : "Taking you to the workspace…"}
+                </p>
+
                 <div className="mt-5 flex gap-1.5">
                   {[0, 1, 2].map(i => (
-                    <motion.div key={i} className="w-1.5 h-1.5 rounded-full bg-emerald-400"
+                    <motion.div key={i}
+                      className={`w-1.5 h-1.5 rounded-full ${flow === "signup" ? "bg-violet-400" : "bg-emerald-400"}`}
                       animate={{ opacity: [0.3, 1, 0.3] }}
-                      transition={{ duration: 0.9, repeat: Infinity, delay: i * 0.2 }} />
+                      transition={{ duration: 0.9, repeat: Infinity, delay: i * 0.2 }}
+                    />
                   ))}
                 </div>
               </motion.div>
