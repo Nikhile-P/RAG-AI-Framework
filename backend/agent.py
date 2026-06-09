@@ -1,10 +1,12 @@
 import os
+import json
 import re
 import sys
 import time
 import threading
 import traceback
 from typing import Any
+from pathlib import Path
 
 from langchain.agents import create_agent
 from langchain_chroma import Chroma
@@ -13,7 +15,7 @@ from langchain_ollama import ChatOllama
 from langchain_tavily import TavilySearch
 from langchain_core.tools.retriever import create_retriever_tool
 from langchain_core.prompts import PromptTemplate
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from dotenv import load_dotenv
 
 # ── Configuration ──────────────────────────────────────────────────────────────
@@ -26,6 +28,10 @@ LOCAL_MODEL       = os.getenv("LOCAL_MODEL_NAME", "qwen2.5:3b")
 ENABLE_WEB        = os.getenv("ENABLE_WEB_FALLBACK", "true").lower() == "true"
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+LOG_DIR = os.path.join(BASE_DIR, "logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+FEEDBACK_FILE = os.path.join(LOG_DIR, "feedback.jsonl")
+LOG_FILE = os.path.join(BASE_DIR, "router.log")
 
 global_runtime = None
 _runtime_init_lock = threading.Lock()
@@ -49,6 +55,145 @@ def _normalize_source(meta_val: Any) -> str:
     if meta_val is None:
         return ""
     return str(meta_val).strip()
+
+
+def _persona_prompt(persona: str | None) -> str:
+    persona = (persona or "Research Analyst").strip()
+    personas = {
+        "Research Analyst": (
+            "Answer like a senior research analyst. Be precise, evidence-led, and practical. "
+            "Focus on findings, implications, and caveats."
+        ),
+        "CIO Advisor": (
+            "Answer like a CIO advisor. Emphasize business impact, risk, adoption readiness, "
+            "governance, and executive decisions."
+        ),
+        "Procurement Lead": (
+            "Answer like a procurement lead. Focus on cost, vendor comparison, SLAs, risks, and "
+            "commercial trade-offs."
+        ),
+        "Product Engineer": (
+            "Answer like a product engineer. Emphasize implementation details, constraints, specs, "
+            "dependencies, and operational considerations."
+        ),
+        "Competitive Strategist": (
+            "Answer like a competitive strategist. Compare options clearly, highlight advantages, "
+            "gaps, and positioning against competitors."
+        ),
+    }
+    return personas.get(persona, f"Answer in the style requested by the user: {persona}.")
+
+
+def _confidence_reason(confidence: str, source_count: int, used_web: bool, compare_mode: bool = False) -> str:
+    if compare_mode:
+        return "Comparison mode used two document sources for direct side-by-side analysis."
+    if used_web:
+        return "Live web sources were used to supplement the answer."
+    if confidence == "High" and source_count >= 2:
+        return "Multiple corroborating internal sources were found."
+    if confidence == "High":
+        return "A relevant internal source was found and the answer is directly grounded in it."
+    if confidence == "Medium":
+        return "The answer is grounded, but the source coverage is limited or partially inferred."
+    return "The response is based on weak or partial source coverage and should be verified."
+
+
+def _build_citations(sources: list[str]) -> list[dict[str, Any]]:
+    citations = []
+    for idx, source in enumerate(sources, start=1):
+        citations.append({"id": idx, "source": source})
+    return citations
+
+
+def _doc_excerpt(source: str, max_chars: int = 1600) -> str:
+    path = resolve_source_path(source)
+    if not path:
+        return ""
+    try:
+        return _read_file_preview(path, max_chars=max_chars).strip()
+    except Exception:
+        return ""
+
+
+def _compare_documents(compare_sources: list[str], query: str, runtime: dict, persona: str | None = None) -> dict:
+    cleaned = []
+    for s in compare_sources:
+        src = _normalize_source(s)
+        if src and src not in cleaned:
+            cleaned.append(src)
+    if len(cleaned) < 2:
+        return {
+            "answer": "Pick two document sources to compare.",
+            "confidence": "Medium",
+            "confidence_reason": "Comparison mode needs two sources.",
+            "sources": cleaned,
+            "source_details": build_source_details(cleaned),
+            "citations": _build_citations(cleaned),
+            "trace": "Comparison",
+        }
+
+    left, right = cleaned[0], cleaned[1]
+    left_excerpt = _doc_excerpt(left)
+    right_excerpt = _doc_excerpt(right)
+    llm = runtime.get("llm")
+    system_ctx = (
+        f"Persona guidance: {_persona_prompt(persona)}\n"
+        "You are comparing two Lenovo documents. Summarize similarities, differences, and a recommendation. "
+        "Use concise sections titled Overview, Similarities, Differences, and Recommendation. "
+        "Cite assertions explicitly as (Source: filename)."
+    )
+
+    if llm and (left_excerpt or right_excerpt):
+        prompt = (
+            f"{system_ctx}\n\n"
+            f"Document 1: {left}\nExcerpt:\n{left_excerpt or 'No excerpt available.'}\n\n"
+            f"Document 2: {right}\nExcerpt:\n{right_excerpt or 'No excerpt available.'}\n\n"
+            f"User intent: {query}\n\n"
+            "Write the comparison now."
+        )
+        try:
+            resp = llm.invoke(prompt)
+            ans = resp.content if hasattr(resp, "content") else str(resp)
+            if ans and len(ans.strip()) > 20:
+                return {
+                    "answer": ans,
+                    "confidence": "High",
+                    "confidence_reason": _confidence_reason("High", 2, False, compare_mode=True),
+                    "sources": cleaned,
+                    "source_details": build_source_details(cleaned),
+                    "citations": _build_citations(cleaned),
+                    "trace": "Document Comparison",
+                    "comparison": {"left": left, "right": right},
+                }
+        except Exception:
+            pass
+
+    answer = (
+        f"Comparison between {left} and {right}.\n\n"
+        f"Overview\n"
+        f"- {left}: {left_excerpt[:500] if left_excerpt else 'No excerpt available.'}\n"
+        f"- {right}: {right_excerpt[:500] if right_excerpt else 'No excerpt available.'}\n\n"
+        f"Recommendation\n"
+        f"- Review both documents side by side for overlap, scope differences, and any conflicting guidance before deciding."
+    )
+    return {
+        "answer": answer,
+        "confidence": "Medium",
+        "confidence_reason": _confidence_reason("Medium", 2, False, compare_mode=True),
+        "sources": cleaned,
+        "source_details": build_source_details(cleaned),
+        "citations": _build_citations(cleaned),
+        "trace": "Document Comparison",
+        "comparison": {"left": left, "right": right},
+    }
+
+
+def _log_feedback(payload: dict[str, Any]) -> None:
+    try:
+        with open(FEEDBACK_FILE, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
 
 
 def _final_ai_message_text(invoke_result: dict[str, Any]) -> str:
@@ -529,9 +674,9 @@ def try_complete_web_answer(query_text: str, runtime: dict) -> dict[str, Any] | 
     }
 
 # ── Entry point ────────────────────────────────────────────────────────────────
-def route_answer(active_history: list, session_id: str = "default") -> dict:
+def route_answer(active_history: list, session_id: str = "default", *, persona: str | None = None, compare_sources: list[str] | None = None) -> dict:
     try:
-        return _route_answer_impl(active_history, session_id=session_id)
+        return _route_answer_impl(active_history, session_id=session_id, persona=persona, compare_sources=compare_sources or [])
     except Exception as e:
         tb = traceback.format_exc()
         print(f"[route_answer] FAILED:\n{tb}", file=sys.stderr)
@@ -543,23 +688,33 @@ def route_answer(active_history: list, session_id: str = "default") -> dict:
                 f"`{type(e).__name__}: {e}`"
             ),
             "confidence": "Low",
+            "confidence_reason": "The backend failed before a grounded answer could be generated.",
             "sources": [],
             "source_details": [],
+            "citations": [],
         }
 
 
-def _route_answer_impl(active_history: list, session_id: str = "default") -> dict:
+def _route_answer_impl(active_history: list, session_id: str = "default", *, persona: str | None = None, compare_sources: list[str] | None = None) -> dict:
     runtime = initialize_agent()
     latest = active_history[-1] if active_history else {}
     latest_query = latest.get("content", "") if isinstance(latest, dict) else ""
     query = sanitize_query(latest_query)
 
     if not query:
-        return {"answer": "Please enter a valid query.", "confidence": "Medium", "sources": [], "source_details": []}
+        return {"answer": "Please enter a valid query.", "confidence": "Medium", "confidence_reason": "No query text was provided.", "sources": [], "source_details": [], "citations": []}
 
     degraded = runtime.get("llm") is None
     banner = _degraded_llm_banner(runtime) if degraded else ""
     start_time = time.time()
+
+    selected_compare_sources = [s for s in (compare_sources or []) if isinstance(s, str) and s.strip()]
+    if len(selected_compare_sources) >= 2:
+        result = _compare_documents(selected_compare_sources[:2], query, runtime, persona=persona)
+        if degraded and result.get("answer"):
+            result["answer"] = banner + result["answer"]
+        log_routing_decision(session_id, query, "Document Comparison", {"confidence": result.get("confidence")}, time.time() - start_time)
+        return result
     
     # ── Intelligent Routing ──
     # If it's a known external query, prioritize the web path for real-time accuracy.
@@ -578,6 +733,8 @@ def _route_answer_impl(active_history: list, session_id: str = "default") -> dic
 
     # ── Internal agent path ────────────────────────────────────────────────────
     hist = []
+    persona_system = _persona_prompt(persona)
+    hist.append(SystemMessage(content=persona_system))
     for m in active_history[-HISTORY_TURNS:]:
         if not isinstance(m, dict):
             continue
@@ -630,9 +787,13 @@ def _route_answer_impl(active_history: list, session_id: str = "default") -> dic
     if ans and len(ans.strip()) > 30 and confidence == "Low":
         confidence = "Medium"
 
-    log_routing_decision(session_id, query, "Internal Agent", {"confidence": confidence})
+    confidence_reason = _confidence_reason(confidence, len(srcs), False)
+    log_routing_decision(session_id, query, "Internal Agent", {"confidence": confidence}, time.time() - start_time)
     return {
         "answer": ans, "confidence": confidence,
+        "confidence_reason": confidence_reason,
         "sources": srcs, "source_details": build_source_details(srcs),
-        "trace": "Agentic Orchestration (Internal + Web)" if runtime.get("web_tool") else "RAG Execution"
+        "citations": _build_citations(srcs),
+        "trace": "Agentic Orchestration (Internal + Web)" if runtime.get("web_tool") else "RAG Execution",
+        "persona": persona or "Research Analyst",
     }

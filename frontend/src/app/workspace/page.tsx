@@ -21,15 +21,30 @@ type SourceDetail = {
   preview?: string;
   url?: string;
 };
+type Citation = {
+  id: number;
+  source: string;
+};
 type Message = {
   role: Role;
   content: string;
   sources?: string[];
   source_details?: SourceDetail[];
   confidence?: "High" | "Medium" | "Low" | string;
+  confidence_reason?: string;
   trace?: string;
+  citations?: Citation[];
+  comparison?: { left: string; right: string };
 };
 type UserProfile = { name: string; email: string; role: string };
+
+const PERSONAS = [
+  "Research Analyst",
+  "CIO Advisor",
+  "Procurement Lead",
+  "Product Engineer",
+  "Competitive Strategist",
+];
 
 // Auth is now checked only on the client inside useEffect to avoid SSR/client mismatch
 function readAuthFromStorage(): { authed: boolean; user: UserProfile | null } {
@@ -311,7 +326,15 @@ function SourcesPanel({ sources, source_details }: { sources?: string[]; source_
 
 // ─── Message bubble ───────────────────────────────────────────────────────────
 
-function MessageBubble({ msg, idx }: { msg: Message; idx: number }) {
+function MessageBubble({
+  msg,
+  idx,
+  onFeedback,
+}: {
+  msg: Message;
+  idx: number;
+  onFeedback?: (msg: Message, idx: number, rating: "up" | "down") => void;
+}) {
   const isUser = msg.role === "user";
   return (
     <div className={`flex gap-4 items-start ${isUser ? "flex-row-reverse" : "flex-row"}`}>
@@ -336,6 +359,20 @@ function MessageBubble({ msg, idx }: { msg: Message; idx: number }) {
           <SourcesPanel sources={msg.sources} source_details={msg.source_details} />
         ) : null}
 
+        {/* Citation strip */}
+        {!isUser && msg.citations?.length ? (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {msg.citations.map(citation => (
+              <span
+                key={citation.id}
+                className="inline-flex items-center gap-1 text-[9px] font-bold tracking-[0.15em] uppercase px-2.5 py-1 rounded-full border bg-white/5 border-white/10 text-white/45"
+              >
+                [{citation.id}] {formatSource(citation.source)}
+              </span>
+            ))}
+          </div>
+        ) : null}
+
         {/* Confidence & Trace badges */}
         {!isUser && (msg.confidence || msg.trace) && (
           <div className="mt-3 flex flex-wrap gap-2">
@@ -355,6 +392,38 @@ function MessageBubble({ msg, idx }: { msg: Message; idx: number }) {
                 {msg.confidence} Confidence
               </span>
             )}
+          </div>
+        )}
+
+        {!isUser && msg.confidence_reason && (
+          <p className="mt-2 text-[11px] text-white/30 leading-relaxed">{msg.confidence_reason}</p>
+        )}
+
+        {!isUser && msg.comparison && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            <span className="inline-flex items-center text-[9px] font-bold tracking-[0.15em] uppercase px-2.5 py-1 rounded-full border bg-cyan-500/10 border-cyan-500/20 text-cyan-300">
+              Compare: {formatSource(msg.comparison.left)} vs {formatSource(msg.comparison.right)}
+            </span>
+          </div>
+        )}
+
+        {!isUser && onFeedback && (
+          <div className="mt-4 flex items-center gap-2">
+            <span className="text-[9px] uppercase tracking-[0.15em] text-white/20 font-bold mr-1">Feedback</span>
+            <button
+              type="button"
+              onClick={() => onFeedback(msg, idx, "up")}
+              className="px-2.5 py-1 rounded-full text-[10px] font-bold border border-emerald-500/15 text-emerald-300 bg-emerald-500/8 hover:bg-emerald-500/12 transition-colors"
+            >
+              Helpful
+            </button>
+            <button
+              type="button"
+              onClick={() => onFeedback(msg, idx, "down")}
+              className="px-2.5 py-1 rounded-full text-[10px] font-bold border border-rose-500/15 text-rose-300 bg-rose-500/8 hover:bg-rose-500/12 transition-colors"
+            >
+              Needs work
+            </button>
           </div>
         )}
       </div>
@@ -720,16 +789,25 @@ function PreferencesPanel() {
 function ChatArea({
   messages,
   setMessages,
+  sessionId,
 }: {
   messages: Message[];
   setMessages: (m: Message[]) => void;
+  sessionId: string;
 }) {
   const [input, setInput]   = useState("");
   const [loading, setLoading] = useState(false);
+  const [persona, setPersona] = useState(PERSONAS[0]);
+  const [compareSources, setCompareSources] = useState<string[]>([]);
   const scrollRef   = useRef<HTMLDivElement>(null);
   const bottomRef   = useRef<HTMLDivElement>(null);
   const inputRef    = useRef<HTMLInputElement>(null);
   const wasAtBottom = useRef(true);
+
+  const comparePool = [...messages]
+    .reverse()
+    .find(msg => msg.role === "assistant" && (msg.source_details?.length ?? 0) > 1)
+    ?.source_details ?? [];
 
   // Track whether user is near the bottom
   const onScroll = useCallback(() => {
@@ -745,6 +823,33 @@ function ChatArea({
     }
   }, [messages, loading]);
 
+  const toggleCompareSource = useCallback((source: string) => {
+    setCompareSources(current => {
+      if (current.includes(source)) return current.filter(item => item !== source);
+      if (current.length >= 2) return [current[1], source];
+      return [...current, source];
+    });
+  }, []);
+
+  const sendFeedback = useCallback(async (msg: Message, idx: number, rating: "up" | "down") => {
+    const comment = rating === "down"
+      ? (window.prompt("What should be improved?", "") ?? "").trim()
+      : "";
+    try {
+      await axios.post("/api/feedback", {
+        session_id: sessionId,
+        message_index: idx,
+        rating,
+        comment,
+        message: msg.content,
+        confidence: msg.confidence ?? "",
+        sources: msg.sources ?? [],
+      });
+    } catch {
+      // Feedback should never block the chat flow.
+    }
+  }, [sessionId]);
+
   const send = useCallback(async (override?: string) => {
     const text = (override ?? input).trim();
     if (!text || loading) return;
@@ -759,6 +864,8 @@ function ChatArea({
       const res = await axios.post("/api/chat", {
         message: text,
         chat_history: messages,
+        persona,
+        compare_sources: compareSources,
       });
       setMessages([
         ...next,
@@ -768,9 +875,13 @@ function ChatArea({
           sources: res.data.sources ?? [],
           source_details: res.data.source_details ?? [],
           confidence: res.data.confidence ?? undefined,
+          confidence_reason: res.data.confidence_reason ?? undefined,
           trace: res.data.trace ?? undefined,
+          citations: res.data.citations ?? [],
+          comparison: res.data.comparison ?? undefined,
         },
       ]);
+      setCompareSources([]);
       // Fire OS notification if tab is hidden and user has it enabled
       const notifyOn = localStorage.getItem("notif-enabled") !== "false";
       if (notifyOn && document.hidden && Notification.permission === "granted") {
@@ -778,9 +889,10 @@ function ChatArea({
           body: (res.data.answer ?? "Answer ready.").slice(0, 120),
         });
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       // THIS PRINTS THE EXACT PYTHON BUG ON YOUR SCREEN
-      const pythonError = err.response?.data?.detail || err.message || "Unknown Crash";
+      const maybeError = err as { response?: { data?: { detail?: string } }; message?: string };
+      const pythonError = maybeError.response?.data?.detail || maybeError.message || "Unknown Crash";
       const errorMsg = typeof pythonError === 'object' ? JSON.stringify(pythonError) : pythonError;
       
       setMessages([
@@ -794,7 +906,7 @@ function ChatArea({
       setLoading(false);
       setTimeout(() => inputRef.current?.focus(), 50);
     }
-  }, [input, loading, messages, setMessages]);
+  }, [input, loading, messages, setMessages, persona, compareSources]);
 
   return (
     <div
@@ -838,7 +950,7 @@ function ChatArea({
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
                 >
-                  <MessageBubble msg={m} idx={i} />
+                  <MessageBubble msg={m} idx={i} onFeedback={sendFeedback} />
                 </motion.div>
               ))}
             </AnimatePresence>
@@ -870,6 +982,63 @@ function ChatArea({
         style={{ background: "linear-gradient(to top, #0E1117 55%, transparent)" }}
       >
         <div className="max-w-3xl mx-auto pointer-events-auto">
+          {comparePool.length > 1 && (
+            <div className="mb-4 rounded-2xl border border-white/10 bg-black/70 backdrop-blur-xl p-4">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div>
+                  <p className="text-[10px] font-bold tracking-[0.2em] uppercase text-white/30">Document comparison</p>
+                  <p className="text-[12px] text-white/45 mt-1">Pick two sources from the latest answer and compare them side by side.</p>
+                </div>
+                <select
+                  value={persona}
+                  onChange={e => setPersona(e.target.value)}
+                  className="rounded-full bg-white/5 border border-white/10 px-3 py-2 text-[11px] text-white/75 outline-none"
+                >
+                  {PERSONAS.map(option => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {comparePool.slice(0, 6).map(source => {
+                  const selected = compareSources.includes(source.name);
+                  return (
+                    <button
+                      key={source.name}
+                      type="button"
+                      onClick={() => toggleCompareSource(source.name)}
+                      className={`px-3 py-1.5 rounded-full text-[11px] font-semibold border transition-colors ${
+                        selected
+                          ? "bg-cyan-500/12 border-cyan-500/30 text-cyan-200"
+                          : "bg-white/5 border-white/10 text-slate-300 hover:bg-white/8"
+                      }`}
+                    >
+                      {selected ? "• " : ""}{formatSource(source.name)}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex items-center justify-between gap-3 mt-3">
+                <span className="text-[10px] text-white/25">Selected: {compareSources.length}/2</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCompareSources([])}
+                    className="px-3 py-1.5 rounded-full text-[11px] font-semibold border border-white/10 text-white/45 hover:text-white/70 hover:bg-white/6 transition-colors"
+                  >
+                    Clear
+                  </button>
+                  <button
+                    type="button"
+                    disabled={compareSources.length !== 2 || loading}
+                    onClick={() => void send("Compare the selected documents and give me a grounded summary of differences, overlap, and the best fit.")}
+                    className="px-3 py-1.5 rounded-full text-[11px] font-bold border border-cyan-500/20 text-cyan-100 bg-cyan-500/10 disabled:opacity-35 disabled:cursor-not-allowed hover:bg-cyan-500/14 transition-colors"
+                  >
+                    Compare selected
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           <form
             onSubmit={e => { e.preventDefault(); send(); }}
             className="relative flex items-center"
@@ -950,8 +1119,10 @@ export default function WorkspacePage() {
     if (!a) {
       router.replace("/sign-in");
     } else {
-      setAuthed(true);
-      setUser(u);
+      queueMicrotask(() => {
+        setAuthed(true);
+        setUser(u);
+      });
     }
   }, [router]);
 
@@ -1035,6 +1206,7 @@ export default function WorkspacePage() {
       <ChatArea
         messages={msgs}
         setMessages={m => setSessions(s => ({ ...s, [currentId]: m }))}
+        sessionId={currentId}
       />
     </motion.div>
   );

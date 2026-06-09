@@ -2,6 +2,7 @@ import os
 import ast
 import sys
 import asyncio
+import json
 import random
 import traceback
 import smtplib
@@ -77,7 +78,8 @@ def _send_sms(phone: str, code: str) -> bool:
     if not (sid and token and frm):
         return False
     try:
-        from twilio.rest import Client
+        from importlib import import_module
+        Client = import_module("twilio.rest").Client
         Client(sid, token).messages.create(
             body=f"Your access code: {code} (expires in 10 min)",
             from_=frm, to=phone,
@@ -93,6 +95,18 @@ def _send_sms(phone: str, code: str) -> bool:
 class ChatRequest(BaseModel):
     message: str
     chat_history: List[dict] = []
+    persona: str = "Research Analyst"
+    compare_sources: List[str] = []
+
+
+class FeedbackRequest(BaseModel):
+    session_id: str = "default"
+    message_index: int
+    rating: str
+    comment: str = ""
+    message: str = ""
+    confidence: str = ""
+    sources: List[str] = []
 
 class OtpRequest(BaseModel):
     identifier: str      # email address or phone number
@@ -285,12 +299,41 @@ async def chat(req: ChatRequest):
 
         payload = req.chat_history + [{"role": "user", "content": req.message}]
         # Heavy sync work (vector DB + LLM): avoid blocking the asyncio event loop
-        result = await asyncio.to_thread(route_answer, payload)
+        result = await asyncio.to_thread(
+            route_answer,
+            payload,
+            session_id="default",
+            persona=req.persona,
+            compare_sources=req.compare_sources,
+        )
         return result
     except Exception as e:
         tb = traceback.format_exc()
         print(f"[Chat] ERROR:\n{tb}")
         raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n\n{tb}")
+
+
+@app.post("/api/feedback")
+async def feedback(req: FeedbackRequest):
+    """Store user feedback for later review and prompt improvement."""
+    feedback_path = os.path.join(BASE_DIR, "logs", "feedback.jsonl")
+    os.makedirs(os.path.dirname(feedback_path), exist_ok=True)
+    entry = {
+        "ts": datetime.now().isoformat(timespec="seconds"),
+        "session_id": req.session_id,
+        "message_index": req.message_index,
+        "rating": req.rating,
+        "comment": req.comment.strip(),
+        "message": req.message,
+        "confidence": req.confidence,
+        "sources": req.sources,
+    }
+    try:
+        with open(feedback_path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.on_event("startup")
 async def startup_event():
